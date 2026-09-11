@@ -1,4 +1,5 @@
 from rest_framework import viewsets
+from rest_framework.permissions import IsAuthenticatedOrReadOnly
 
 from .models import (
     CompetitionCategory,
@@ -35,6 +36,7 @@ class EnabledCompetitionCategoryViewSet(viewsets.ModelViewSet):
 
 
 class CompetitionStageViewSet(viewsets.ModelViewSet):
+    permission_classes = (IsAuthenticatedOrReadOnly,)
     queryset = CompetitionStage.objects.all()
     serializer_class = CompetitionStageSerializer
     filterset_fields = ('competition', 'stage_type')
@@ -51,6 +53,7 @@ class RankDirectionViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class EventViewSet(viewsets.ModelViewSet):
+    permission_classes = (IsAuthenticatedOrReadOnly,)
     queryset = Event.objects.all()
     serializer_class = EventSerializer
     filterset_fields = ('competition_stage',)

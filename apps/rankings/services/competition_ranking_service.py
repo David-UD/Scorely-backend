@@ -43,11 +43,15 @@ class CompetitionRankingService:
                 event_ranks = list(
                     event_competitors.values_list('event_rank', flat=True)
                 )
+                event_scores = list(
+                    event_competitors.values_list('score', flat=True)
+                )
 
                 competitor_scores.append({
                     'competitor': competitor,
                     'final_score': final_score,
                     'event_ranks': event_ranks,
+                    'event_scores': event_scores,
                 })
 
             ranked = self._rank_competitors(competitor_scores)
@@ -96,6 +100,7 @@ class CompetitionRankingService:
                 'final_score': current['final_score'],
                 'rank': rank,
                 'event_ranks': current['event_ranks'],
+                'event_scores': current['event_scores'],
             })
 
             current_rank += 1

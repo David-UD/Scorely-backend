@@ -175,7 +175,7 @@ Base URL: `http://localhost:8000/api/v1/`
 | Reglas de puntuación | `GET/POST /scoring-rules/` |
 | Leaderboard público | `GET /leaderboards/competition/<id>/qualifier/`, `GET /leaderboards/competition/<id>/final/` |
 
-Autenticación con header: `Authorization: Bearer <access_token>`. Los leaderboards son públicos (`AllowAny`).
+Autenticación con header: `Authorization: Bearer <access_token>`. Los endpoints de solo lectura de competiciones, etapas y eventos son públicos (sin token). Las escrituras siguen requiriendo JWT. Los leaderboards son públicos (`AllowAny`).
 
 ## Documentación Swagger/OpenAPI
 

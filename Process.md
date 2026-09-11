@@ -10,6 +10,7 @@ Seguimiento en tiempo real de la ejecución del PLAN.md.
 |-----------|------|--------|--------|-----|
 | Build | 0–14 | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
 | Seed Update | 0–14 | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
+| Public GETs | 0–7 | ✅ COMPLETADA | 11/09/2026 | 11/09/2026 |
 
 ---
 
@@ -409,3 +410,45 @@ Ampliación del comando `seed_data` para incluir competiciones, ediciones, etapa
 - **Fix Dockerfile:** `python:3.8.10-slim` usaba Debian buster (EOL, repos sin `Release`). Cambiado a `python:3.11-slim`. Imagen `scorely-web` build OK.
 - **Fix docker-compose:** service web necesita `DB_HOST: db` (env override) porque `.env` apunta a `localhost` (para tests desde el host).
 - PostgreSQL 15 en contenedor: healthy.
+
+---
+
+## Iteración "Public GETs" (Fases 0–7) — 11/09/2026 — Completa
+
+Apertura de endpoints de lectura (GET) al público sin autenticación, según Parte II de `PROMPT.md`.
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|---------|--------|
+| `apps/competitions/views.py` | `CompetitionViewSet`: añadido `permission_classes = (IsAuthenticatedOrReadOnly,)` |
+| `apps/events/views.py` | `CompetitionStageViewSet` y `EventViewSet`: añadido `permission_classes = (IsAuthenticatedOrReadOnly,)` |
+| `tests/test_api.py` | Nueva clase `TestAPIPublicReadOnly` (11 tests: lecturas públicas, escrituras 401, regresión JWT, leaderboard intacto) |
+
+### Enfoque elegido
+
+**Opción A** del PLAN.md: `IsAuthenticatedOrReadOnly` de DRF declarado directamente en los 3 ViewSets objetivo (más simple y consistente con el patrón de `LeaderboardViewSet`). No se creó mixin ni se cambió el `DEFAULT_PERMISSION_CLASSES` global.
+
+### Qué se abrió al público
+
+| Endpoint | Antes | Después |
+|----------|-------|---------|
+| `GET /api/v1/competitions/` | 401 | 200 (listado) |
+| `GET /api/v1/competitions/<id>/` | 401 | 200 (detalle con type/status/affiliation/location) |
+| `GET /api/v1/competition-stages/?competition=<id>` | 401 | 200 |
+| `GET /api/v1/events/?competition_stage=<id>` | 401 | 200 |
+| `POST/DELETE` de los mismos | 401 | 401 (sin cambios) |
+| `GET /api/v1/leaderboards/competition/<id>/*` | 200 | 200 (sin cambios) |
+
+### Verificaciones
+
+| Verificación | Resultado |
+|--------------|-----------|
+| `manage.py check` | ✅ 0 issues |
+| `manage.py spectacular --validate` | ✅ OK |
+| `manage.py makemigrations --check` | ✅ No changes detected |
+| `pytest tests/` | ✅ **92/92 passed** (81 previos + 11 nuevos) |
+
+### Migraciones
+
+Ninguna (no hubo cambios de modelo). No hay pasos manuales de migración para esta iteración.

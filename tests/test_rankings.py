@@ -196,6 +196,8 @@ class TestCompetitionRankingService:
         assert len(entry) == 2
         assert entry[0]['final_score'] == 488
         assert entry[1]['final_score'] == 482
+        assert entry[0]['event_scores'] == [94, 100, 94, 100, 100]
+        assert entry[1]['event_scores'] == [100, 94, 100, 94, 94]
 
     def test_tie_breaking_places(self, event, status_valid, competition, enabled_category, scoring_rules):
         # Both get 476, competitor 1 has 2 wins vs competitor 2 with 2 wins → tie maintained

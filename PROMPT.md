@@ -33,10 +33,10 @@ El backend comienza en el registro de participantes y termina en la publicación
 Scorely/
 ├── config/                 # settings (base/development/production), urls, wsgi, asgi
 ├── apps/
-│   ├── users/              # User, Role, CompetitionEditionAdmin, permisos, seed_data
-│   ├── competitions/       # CompetitionType, Affiliation, Location, Competition, CompetitionEdition
-│   ├── participants/       # Person, Team, TeamMember, Competitor
-│   ├── events/             # CompetitionCategory, EnabledCategory, Stage, Event, ResultType, RankDirection, EventCompetitor, StatusEventCompetitor
+│   ├── users/              # User, CompetitionAdmin, permisos, seed_data
+│   ├── competitions/       # CompetitionType, Affiliation, Location, StatusCompetition, Competition
+│   ├── participants/       # Athlete, Team, TeamMember, Competitor
+│   ├── events/             # CompetitionCategory, EnabledCompetitionCategory, CompetitionStage, Event, EventResultType, RankDirection, EventCompetitor, StatusEventCompetitor
 │   ├── scoring/            # ScoringRule, ScoringService
 │   └── rankings/           # Leaderboard, ranking services
 ├── tests/                  # Suite de pytest
@@ -78,20 +78,19 @@ docker compose up --build
 ## Modelo de datos (resumen)
 
 ```
-Competition
-  └─▶ CompetitionEdition          UNIQUE(competition, year)
-        └─▶ CompetitionStage      una QUALIFIER y una FINAL por edición
-              └─▶ Event           UNIQUE(competition_stage, event_number)
-                    └─▶ EventCompetitor   UNIQUE(competitor, event) / result + event_rank + score
-                          └─▶ Final Score
-                                └─▶ Leaderboard
+Competition (slug único, año derivado de start_date, status DRAFT/ACTIVE/FINISHED)
+  └─▶ CompetitionStage      una QUALIFIER y una FINAL por competición
+        └─▶ Event           UNIQUE(competition_stage, event_number)
+              └─▶ EventCompetitor   UNIQUE(competitor, event) / result + event_rank + score
+                    └─▶ Final Score
+                          └─▶ Leaderboard
 
 Participantes:
-Person ─┐
-        ▼
-  Competitor  (INDIVIDUAL usa person | TEAM usa team, nunca ambos)
-        ▲
-Team ── TeamMember (UNIQUE(team, person))
+Athlete ─┐
+         ▼
+   Competitor  (INDIVIDUAL usa athlete | TEAM usa team, nunca ambos)
+         ▲
+Team ── TeamMember (UNIQUE(team, athlete))
 ```
 
 El motor de puntuación **siempre** trabaja con `Competitor`, sea individual o equipo.
@@ -106,7 +105,7 @@ Resultado → Posición (rank) → Puntos WOD (ScoringRule) → Puntaje Final �
 
 - `Final Score = SUM(puntos de todos los eventos válidos)`.
 - Empates con ranking deportivo denso: `1, 2, 2, 4` (nunca `1, 2, 3, 4`).
-- Cada edición define su propia tabla `ScoringRule` (nunca asumir fórmula fija).
+- Cada competición define su propia tabla `ScoringRule` (nunca asumir fórmula fija).
 - La fase Final tiene ranking **independiente**; nunca sumar Qualifier + Final.
 - Desempates permitidos: mayor puntaje → más 1ºs → más 2ºs → más 3ºs → mejor resultado último evento común → mantener empate. **Prohibidos:** ID, nombre, fecha de registro.
 
@@ -115,10 +114,11 @@ Resultado → Posición (rank) → Puntos WOD (ScoringRule) → Puntaje Final �
 | Requisito | Implementación |
 |-----------|---------------|
 | Autenticación | JWT via simplejwt (`/api/v1/auth/token/`, `/api/v1/auth/token/refresh/`) |
-| Autorización | Permisos por edición (`apps/users/permissions.py`) |
+| Autorización | Permisos por competición (`apps/users/permissions.py`) |
 | Secretos | Solo variables de entorno |
 | CORS | Configurable |
 | Leaderboards | Públicos (`AllowAny`) |
+| Lectura pública (competencias/etapas/eventos) | Públicos de solo lectura — ver Parte II |
 
 ## Restricciones del proyecto
 
@@ -134,132 +134,118 @@ Resultado → Posición (rank) → Puntos WOD (ScoringRule) → Puntaje Final �
 
 ## 1. Título
 
-Seed de datos de prueba para visualización del API
+Abrir endpoints de lectura al público (GET de solo lectura) para el frontend público
 
 ## 2. Objetivo
 
-Poblar la base de datos con datos de ejemplo (competencias, ediciones, categorías, eventos, competidores, resultados y puntuaciones) para visualizar el comportamiento del API y los leaderboards públicos.
+Permitir que las vistas públicas del frontend (SPA, `PROMPT-frontend.md`) consulten competiciones, etapas y eventos **sin autenticarse**, manteniendo las escrituras protegidas por JWT.
+
+Hoy el backend solo expone `leaderboards` con `AllowAny`; `competitions`, `competition-stages` y `events` exigen JWT por defecto (`DEFAULT_PERMISSION_CLASSES = IsAuthenticated` en `config/settings/base.py:86`). Esto bloquea el inicio público `/` y el detalle de competición (decisión aplazada en `PROMPT-frontend.md`, sección 12, que esta actualización resuelve).
 
 ## 3. Alcance
 
 **Incluye (se debe implementar):**
-- Ampliar el comando `seed_data` (`apps/users/management/commands/seed_data.py`) para crear todos los datos listados en la sección 9.
-- Dejar el seed idempotente (re-ejecutable sin duplicar datos): usar `get_or_create` y valores conocidos.
+- Abrir lectura pública (GET) de:
+  - `GET /api/v1/competitions/` y `GET /api/v1/competitions/{id}/`
+  - `GET /api/v1/competition-stages/?competition={id}`
+  - `GET /api/v1/events/?competition_stage={id}`
+- Las escrituras de esos mismos endpoints (`POST`/`PUT`/`PATCH`/`DELETE`) **permanecen autenticadas** (401 sin JWT).
+- Añadir tests de permiso que aseguren el comportamiento público + protegido.
 
 **Excluye (NO tocar):**
-- No modificar modelos, serializers, views ni services existentes.
-- No cambiar la API ni la lógica de ranking/puntuación.
-- No ejecutar `makemigrations`/`migrate`/`createsuperuser` (los corre el usuario).
+- No modificar modelos, serializers, services ni la lógica de ranking/puntuación.
+- No abrir la lectura de catálogos que la UI pública no consume: `users`, `auth`, `competition-admins`, `affiliations`, `locations`, `competition-types`, `competition-categories`, `enabled-competition-categories`, `event-result-types`, `rank-directions`, `status-event-competitors`, `athletes`, `teams`, `team-members`, `competitors`, `event-competitors`, `scoring-rules`.
+- No ejecutar `makemigrations`/`migrate` (no hay cambios de modelo).
+- No cambiar `LeaderboardViewSet` (ya público).
 
 ## 4. Cambios en el modelo de datos
 
-- NO hay cambios en el modelo.
+- Ninguno. No se generan migraciones.
 
 ## 5. Cambios en la API
 
-- NO hay cambios en el API; solo se usa para visualizar los datos sembrados.
+Enfoque recomendado: usar la clase **`IsAuthenticatedOrReadOnly`** de DRF por ViewSet (permite `GET`/`HEAD`/`OPTIONS` a cualquiera; exige autenticación para el resto de métodos).
+
+| ViewSet | App | Cambio |
+|---------|-----|--------|
+| `CompetitionViewSet` | `apps/competitions/views.py` | `permission_classes = (IsAuthenticatedOrReadOnly,)` |
+| `CompetitionStageViewSet` | `apps/events/views.py` | ídem |
+| `EventViewSet` | `apps/events/views.py` | ídem |
+
+Alternativa (si se quiere centralizar la regla): crear un mixin `PublicReadOnly(IsAuthenticatedOrReadOnly)` en `apps/users/permissions.py` y aplicarlo a los tres ViewSets. Elegir la opción más simple y consistente con el código existente.
+
+Consideraciones:
+- El detalle de `Competition` ya embebe `competition_type`, `status`, `affiliation`, `location` vía `CompetitionSerializer` (solo lectura), así que la página pública de detalle no necesita llamadas adicionales a esos catálogos.
+- Se mantienen intactos los filtros y búsquedas actuales (django-filter): `competitions` filtra por `competition_type`/`status`; `competition-stages` por `competition`/`stage_type`; `events` por `competition_stage`.
+- `CompetitionViewSet` conserva su `get_serializer_class()` (read vs write) sin cambios.
 
 ## 6. Cambios en lógica de negocio / servicios
 
-- No cambia la lógica de negocio. Única modificación de código: nuevos datos en `seed_data`.
+- Ninguno.
 
 ## 7. Cambios en Django Admin
 
-- Sin cambios: todos los modelos ya están registrados. Se usa `createsuperuser` para acceder.
+- Ninguno.
 
 ## 8. Cambios en documentación
 
-- `Process.md`: registrar avances.
-- `RESULTADOS.md`: registrar el resultado del seed y las verificaciones.
-- `README.md`: opcional, mencionar los datos de ejemplo creados por `seed_data`.
+- `Process.md`: registrar avances y resultado de la fase.
+- `RESULTADOS.md`: registrar el resultado y las verificaciones.
+- `README.md`: actualizar la sección API/seguridad — indicar que los GET de `competitions`, `competition-stages` y `events` son públicos (solo lectura) además de los leaderboards.
+- `PROMPT-frontend.md`: actualizar la sección 12 (la decisión ya no está pendiente → opción (a) implementada) y la tabla de endpoints marcados como "Pública pendiente (hoy JWT)" → "Pública (AllowAny)".
 
-## 9. Datos / seeds
+## 9. Detalle de implementación
 
-Catalogos ya cubiertos por `seed_data` (roles, types, estados, result types, rank directions, categorías globales) — no repetir. Extender con:
+Para cada ViewSet objetivo:
 
-**Affiliaciones ("box") — 6** (el modelo `Affiliation` no distingue tipo; los nombres indican el origen):
+```python
+from rest_framework.permissions import IsAuthenticatedOrReadOnly
 
-| Nombre | Ciudad |
-|--------|--------|
-| `[COMPLETAR nombre box crossfit]`… | `[COMPLETAR]` |
-| Total: 4 relacionados a competencias CrossFit y 2 a HYROX | |
+class CompetitionViewSet(viewsets.ModelViewSet):
+    permission_classes = (IsAuthenticatedOrReadOnly,)
+    queryset = Competition.objects.all()
+    serializer_class = CompetitionSerializer
+    ...
+```
 
-**Locations — 4** (obligatoria 1 por competencia): `[COMPLETAR nombre/sede dirección ciudad]`.
-
-**Competencias — 4 (2 CROSSFIT + 2 HYROX)**, cada una con `affiliation` + `location`:
-
-| Nº | Nombre | Type | Edición | Eventos QUALIFIER | Evento FINAL | Categorías habilitadas |
-|----|--------|------|---------|-------------------|--------------|------------------------|
-| 1 | `[COMPLETAR CrossFit A]` | CROSSFIT | año `[COMPLETAR]` | 3 | 1 | Principiantes (Ind), Intermedios (Ind), Principiantes Mixto (Eq 2) |
-| 2 | `[COMPLETAR CrossFit B]` | CROSSFIT | año `[COMPLETAR]` | 4 | 1 | Relevos 4 (Eq 4) |
-| 3 | `[COMPLETAR HYROX A]` | HYROX | año `[COMPLETAR]` | 1 | — | RX (Ind) |
-| 4 | `[COMPLETAR HYROX B]` | HYROX | año `[COMPLETAR]` | 1 | — | RX (Ind) |
-
-> Definido en esta revisión: cada edición tiene stage QUALIFIER (order 1, `qualification_count` según avance a final) y, para crossfit, stage FINAL (order 2) con 1 "WOD Final". Las 2 HYROX llevan 1 evento (en QUALIFIER) cada una. Los años y nombres quedan a elección del usuario → `[COMPLETAR]`.
-
-**Categorías globales nuevas (CompetitionCategory)** — las de la plantilla actual (Individual Male/Female, Team Mixto 2-2, Master) se conservan; **agregar**:
-
-| Nombre | min_members | max_members |
-|--------|-------------|-------------|
-| Principiantes Individual | 1 | 1 |
-| Intermedios Individual | 1 | 1 |
-| RX Individual | 1 | 1 |
-| Principiantes Mixto | 2 | 2 |
-| Intermedios Duo | 2 | 2 |
-| Relevos 4 | 4 | 4 |
-
-**Eventos por competencia** (indicar `event_result_type` + `rank_direction`):
-
-| Competencia | Evento | Type | Direction |
-|-------------|--------|------|-----------|
-| CrossFit A QUALIFIER | `[COMPLETAR]` (WOD 1) | TIME | ASC |
-| CrossFit A QUALIFIER | `[COMPLETAR]` (WOD 2) | REPS | DESC |
-| CrossFit A QUALIFIER | `[COMPLETAR]` (WOD 3) | WEIGHT | DESC |
-| CrossFit A FINAL | `[COMPLETAR]` WOD Final | TIME | ASC |
-| CrossFit B QUALIFIER | 4 eventos (mismos tipos que A, 4.º DISTANCE/REPS `[COMPLETAR]`) | — | — |
-| CrossFit B FINAL | WOD Final | TIME | ASC |
-| HYROX A / B | HYROX Race | TIME | ASC |
-
-**ScoringRule por edición** (puntuación por posición, misma en las 4 ediciones):
-
-| Posición | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
-|----------|---|---|---|---|---|---|---|---|---|---|
-| Puntos | 100 | 94 | 88 | 82 | 76 | 70 | 64 | 58 | 52 | 46 |
-
-**Competidores + resultados** (necesarios para visualizar leaderboards):
-- CrossFit A: 2 personas (Principiantes Ind), 1 persona (Intermedios Ind), 2 equipos de 2 (Principiantes Mixto).
-- CrossFit B: 2 equipos de 4 integrantes (Relevos 4) con sus `TeamMember`.
-- HYROX A/B: 2 personas (RX Ind) por competencia.
-- `EventCompetitor` con `result` (string) y `status=VALID` por evento, para que el leaderboard muestre posiciones/scores. Las posiciones y scores se calculan (no se fijan).
+Verificar al final:
+- Que usuarios anónimos y autenticados pueden leer (`GET`).
+- Que `POST`/`PATCH`/`PUT`/`DELETE` siguen devolviendo `401` sin credenciales válidas y funcionan con superadmin/`CompetitionAdmin` según las reglas actuales de `apps/users/permissions.py`.
 
 ## 10. Pruebas requeridas
 
 | Test | Escenario | Resultado esperado |
 |------|-----------|--------------------|
-| Seed idempotente | Ejecutar `seed_data` dos veces | Sin duplicados (mismos conteos) |
-| GET `/api/v1/competitions/` | Consultar lista | 4 competencias con sus tipos |
-| GET `/api/v1/leaderboards/edition/{id}/qualifier/` | Edición CrossFit A | Leaderboard con scores y posiciones |
-| GET `/api/v1/leaderboards/edition/{id}/final/` | Edición CrossFit A | Ranking independiente del qualifier |
-| GET `/api/v1/leaderboards/edition/{id}/qualifier/` | Edición CrossFit B (Relevos 4) | Leading con equipos de 4 |
+| GET `/api/v1/competitions/` sin token | Anónimo | 200 con listado |
+| GET `/api/v1/competitions/{id}/` sin token | Anónimo | 200 con detalle (type/status/affiliation/location embebidos) |
+| POST `/api/v1/competitions/` sin token | Anónimo | 401 |
+| DELETE `/api/v1/competitions/{id}/` sin token | Anónimo | 401 |
+| GET `/api/v1/competition-stages/?competition={id}` sin token | Anónimo | 200 |
+| POST `/api/v1/competition-stages/` sin token | Anónimo | 401 |
+| GET `/api/v1/events/?competition_stage={id}` sin token | Anónimo | 200 |
+| POST `/api/v1/events/` sin token | Anónimo | 401 |
+| GET públicas con JWT válido | Autenticado | 200 (regresión) |
+| Leaderboards público | Anónimo | 200 (sin cambios) |
+
+Añadir los casos nuevos en `tests/test_api.py` (reutilizando fixtures existentes). Mantener la suite completa en verde.
 
 ## 11. Criterios de aceptación
 
 Checklist verificable al terminar:
 
-- `python manage.py check` sin errores
-- `python manage.py spectacular --validate` limpio
-- Suite de pytest completa en verde
-- `seed_data` ejecutado dos veces no duplica datos
-- Existen 4 competencias (2 CROSSFIT, 2 HYROX), 6 affiliations, 4 locations
-- Leaderboards (qualifier/final) responden HTTP 200 con datos
+- `python manage.py check --settings=config.settings.development` sin errores.
+- `python manage.py spectacular --validate --settings=config.settings.development` limpio.
+- `python manage.py makemigrations --check --settings=config.settings.development` → "No changes" (sin migraciones).
+- Suite pytest completa en verde (incluidos los nuevos tests de permisos).
+- GET públicos responden 200 sin token; escrituras responden 401 sin token.
 
 ## 12. Observaciones / riesgos
 
-- `Affiliation` no tiene campo de tipo: los "6 box (4 crossfit, 2 hyrox)" se modelan solo con el nombre; ajustar nombres con `[COMPLETAR]`.
-- `Competition` exige `affiliation` y `location` obligatorios (`PROTECT`): crear SIEMPRE ambas por competencia.
-- CRUD de eventos: `UNIQUE(stage, event_number)` — numerar secuencial.
-- Sin `Competitor` + `EventCompetitor` no hay leaderboard visible; por eso se incluyen personas/equipos/resultados.
-- Los equipos de 4 necesitan la categoría `Relevos 4` (4-4) habilitada en la edición correspondiente.
+- **Backward-compatible:** el cambio solo relaja lectura; no rompe contratos existentes.
+- Origen de la necesidad: `PROMPT-frontend.md` — vistas públicas `/` (recientes + todas) y detalle (info general, mapa, afiliación, fechas, WODs y leaderboards) sin login.
+- No abrir de más: si una vista pública futura necesitara otros catálogos (p. ej. `competition-categories` o `enabled-competition-categories` para filtros de leaderboard), abrirlos en una iteración aparte con su test.
+- `EventResultTypeViewSet`, `RankDirectionViewSet` y `StatusEventCompetitorViewSet` ya son `ReadOnlyModelViewSet` pero aún con `IsAuthenticated` por defecto: no se tocan en esta iteración a menos que la UI los requiera.
+- Cuidado con la doble fuente de permisos: si se añade `DEFAULT_PERMISSION_CLASSES` global distinta, revisar que no contradiga los `permission_classes` por ViewSet.
 
 ---
 

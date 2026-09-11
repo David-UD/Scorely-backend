@@ -2,8 +2,8 @@
 
 Ejecución completa del PLAN.md para la construcción del backend de **Scorely** (Django REST Framework + PostgreSQL + Docker).
 
-**Fecha:** 09/09/2026
-**Estado global:** ✅ Completo — 14/14 fases + iteración seed ampliado.
+**Fecha:** 09/09/2026 (última actualización: 11/09/2026 — iteración "Public GETs")
+**Estado global:** ✅ Completo — 14/14 fases + iteración seed + iteración "Public GETs".
 
 ---
 
@@ -11,12 +11,13 @@ Ejecución completa del PLAN.md para la construcción del backend de **Scorely**
 
 El plan se ejecutó en su totalidad. La base del proyecto está operativa:
 
-- **14 de 14 fases completadas + iteración seed.**
-- **82/82 tests pasando** contra PostgreSQL 15 real (Docker).
+- **14 de 14 fases completadas + iteración seed + iteración "Public GETs".**
+- **92/92 tests pasando** contra PostgreSQL 15 real (Docker).
 - `manage.py check` y `manage.py spectacular --validate` sin errores ni warnings.
 - Imagen Docker `scorely-web` construida correctamente.
 - PostgreSQL 15 healthy en contenedor.
 - `seed_data` ampliado con datos demo completos (ver abajo).
+- Endpoints de lectura de competiciones/etapas/eventos abiertos al público (sin JWT).
 
 Pendiente por parte del usuario (por su solicitud): **ejecutar las migraciones y seed de forma manual**.
 
@@ -35,11 +36,11 @@ Pendiente por parte del usuario (por su solicitud): **ejecutar las migraciones y
 
 | Dominio | Modelos |
 |---------|---------|
-| Users | `User` (custom, email login), `Role`, `CompetitionEditionAdmin` |
-| Competitions | `CompetitionType`, `Affiliation`, `Location`, `Competition`, `CompetitionEdition` |
-| Participants | `Person`, `Team`, `TeamMember`, `Competitor` (individual/team) |
-| Events | `CompetitionCategory`, `CompetitionEnabledCategory`, `CompetitionStage`, `Event`, `EventResultType`, `RankDirection`, `StatusEventCompetitor`, `EventCompetitor` |
-| Scoring | `ScoringRule` (tabla de puntos por posición/edición) |
+| Users | `User` (custom, email login), `CompetitionAdmin` |
+| Competitions | `CompetitionType`, `Affiliation`, `Location`, `Competition`, `StatusCompetition` |
+| Participants | `Athlete`, `Team`, `TeamMember`, `Competitor` (individual/team) |
+| Events | `CompetitionCategory`, `EnabledCompetitionCategory`, `CompetitionStage`, `Event`, `EventResultType`, `RankDirection`, `StatusEventCompetitor`, `EventCompetitor` |
+| Scoring | `ScoringRule` (tabla de puntos por posición y competición) |
 
 ### Servicios de Negocio
 
@@ -55,13 +56,16 @@ Pendiente por parte del usuario (por su solicitud): **ejecutar las migraciones y
 
 - Auth: `POST /api/v1/auth/token/`, `POST /api/v1/auth/token/refresh/`.
 - CRUD completo por recurso bajo `/api/v1/`.
-- Leaderboard público: `/api/v1/leaderboards/edition/<id>/qualifier/` y `/final/`.
+- Lectura pública de competiciones, etapas y eventos (`IsAuthenticatedOrReadOnly`).
+- Leaderboard público: `/api/v1/leaderboards/competition/<id>/qualifier/` y `/final/` (`AllowAny`).
 - Docs: `/api/schema/`, `/api/docs/` (Swagger), `/api/redoc/`.
 
 ### Seguridad
 
 - Autenticación JWT (Bearer) con `simplejwt`.
 - Permisos por rol: `IsSuperAdmin`, `IsEditionAdmin`.
+- Endpoints de lectura públicos: `CompetitionViewSet`, `CompetitionStageViewSet`, `EventViewSet` (`IsAuthenticatedOrReadOnly`), `LeaderboardViewSet` (`AllowAny`).
+- Escrituras protegidas por JWT (mismo comportamiento anterior).
 - CORS configurado para `http://localhost:3000`.
 
 ### Datos Demo (`seed_data`)
@@ -93,7 +97,7 @@ Idempotente: ejecutar 2 veces produce exactamente los mismos conteos.
 |--------------|-----------|
 | `manage.py check` | ✅ 0 issues |
 | `manage.py spectacular --validate` | ✅ Limpio |
-| Suite de tests (pytest) | ✅ 82/82 passed |
+| Suite de tests (pytest) | ✅ 92/92 passed |
 | `docker compose config` | ✅ Válido |
 | `docker build -t scorely-web .` | ✅ OK |
 
@@ -107,7 +111,7 @@ Idempotente: ejecutar 2 veces produce exactamente los mismos conteos.
 | `test_events.py` | Categorías, stages (único qualifier), eventos, resultados |
 | `test_scoring.py` | ScoringRule y ScoringService |
 | `test_rankings.py` | ResultParser, EventRankingService, CompetitionRankingService, FinalQualificationService |
-| `test_api.py` | Endpoints principales (auth, users, competitions, events, leaderboards) |
+| `test_api.py` | Endpoints principales (auth, users, competitions, events, leaderboards) + permisos de lectura pública (11 tests) |
 | `test_security.py` | JWT (obtain/refresh/expired/invalid), permisos por rol, CORS |
 | `test_seed.py` | Conteo datos demo, idempotencia (2 ejecuciones), ranking calculado, categorías globales |
 

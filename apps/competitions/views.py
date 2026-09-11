@@ -1,4 +1,6 @@
+from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
+from rest_framework.permissions import IsAuthenticatedOrReadOnly
 
 from .models import Affiliation, Competition, CompetitionType, Location
 from .serializers import (
@@ -31,6 +33,7 @@ class LocationViewSet(viewsets.ModelViewSet):
 
 
 class CompetitionViewSet(viewsets.ModelViewSet):
+    permission_classes = (IsAuthenticatedOrReadOnly,)
     queryset = Competition.objects.all()
     serializer_class = CompetitionSerializer
     search_fields = ('name',)
@@ -40,3 +43,17 @@ class CompetitionViewSet(viewsets.ModelViewSet):
         if self.action in ('create', 'update', 'partial_update'):
             return CompetitionWriteSerializer
         return CompetitionSerializer
+
+    def get_object(self):
+        queryset = self.filter_queryset(self.get_queryset())
+        lookup_value = self.kwargs.get(self.lookup_url_kwarg or self.lookup_field)
+        if lookup_value is None:
+            return super().get_object()
+        try:
+            int(lookup_value)
+        except (TypeError, ValueError):
+            obj = get_object_or_404(queryset, slug=lookup_value)
+        else:
+            obj = get_object_or_404(queryset, pk=lookup_value)
+        self.check_object_permissions(self.request, obj)
+        return obj

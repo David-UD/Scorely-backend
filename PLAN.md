@@ -1,413 +1,364 @@
-# Plan de Implementación — Seed de datos de prueba (PROMPT.md, Parte II)
+# Plan de Implementación — Abrir GET públicos de solo lectura (PROMPT.md, Parte II)
 
-> Este plan reemplaza el plan original de construcción (proyecto ya implementado y verificado: 78 tests en verde). Documenta paso a paso cómo implementar la actualización definida en la **Parte II de `PROMPT.md`**: ampliar el seed con datos de ejemplo para visualizar el API y los leaderboards.
+> Este plan reemplaza al plan anterior (Seed Update, ya completado y verificado). Documenta paso a paso cómo implementar la actualización definida en la **Parte II de `PROMPT.md`**: abrir la lectura pública (GET) de `competitions`, `competition-stages` y `events` para que el frontend consulta público funcione sin autenticación, manteniendo las escrituras protegidas por JWT.
 >
-> **Alcance ejecutado por este plan: SOLO los cambios indicados. No ejecutar nada más.**
+> **Alcance ejecutado por este plan: SOLO los cambios indicados. No ejecutar nada fuera de lo listado.**
+>
+> **Este plan NO ejecuta los cambios**: es la guía de implementación. Cada archivo modificado debe verificar los snippets aquí propuestos contra el código real antes de aplicar.
 
 ---
 
 ## Restricciones Globales
 
-- No crear ramas git / no push.
-- **NO ejecutar** `makemigrations`, `migrate`, `seed_data` ni `createsuperuser`. Avisar al usuario para que los ejecute manualmente.
-- No modificar modelos, serializers, views, services ni la API existentes.
-- La lógica nueva vive en el management command `seed_data` (dato, no en `services/` — es símplemente data seeding).
-- Nunca guardar credenciales en código.
+- No crear ramas git / no push / no commit (el agente no toca git sin pedido explícito del usuario).
+- **NO ejecutar** `makemigrations`, `migrate`, `seed_data` ni `createsuperuser`: esta actualización **no genera migraciones** (sin cambios de modelo), por lo que no hay pasos de migración manuales.
+- No modificar modelos, serializers, services, urls ni la lógica de ranking/puntuación.
+- No cambiar `LeaderboardViewSet` (ya público con `AllowAny`).
+- No cambiar `config/settings/base.py` (se conserva `DEFAULT_PERMISSION_CLASSES = IsAuthenticated` como default global).
+- Seguir el patrón existente de `permission_classes` por ViewSet (como ya hace `LeaderboardViewSet`).
+- No añadir comentarios al código salvo que se pidan.
 - Documentar avances en `Process.md` al iniciar y finalizar cada fase.
 
 ---
 
 ## Contexto / Estado actual
 
-- Backend completo: apps `users`, `competitions`, `participants`, `events`, `scoring`, `rankings` en `apps/`.
-- `seed_data` actual (`apps/users/management/commands/seed_data.py`) solo crea **catálogos**: Roles, CompetitionTypes, StatusEventCompetitor, EventResultType, RankDirection y categorías globales (Individual/Team/Master). No crea competencias, ediciones, eventos, competidores ni resultados.
-- `EventCompetitor` guarda `result`, `event_rank` y `score`. **El rank y el score NO se calculan al guardar por API o por seed**: se calculan invocando `EventRankingService.calculate_event_ranking(event)` (apps/events/services/event_ranking_service.py), que asigna `event_rank` y `score` según `ScoringRule` de la edición, usando ranking denso (`1, 2, 2, 4`). **El leaderboard suma `score` de los `EventCompetitor` con `status='VALID'`** (apps/rankings/services/competition_ranking_service.py) → **sin ese paso el leaderboard mostraría scores con `None`/0**.
-- El seed debe ser **idempotente** (ejecutable N veces sin duplicar): usar `get_or_create` con claves estables.
+- `config/settings/base.py:86-87` define `DEFAULT_PERMISSION_CLASSES = ('rest_framework.permissions.IsAuthenticated',)`. Solo `LeaderboardViewSet` declara `permission_classes = [AllowAny]` (`apps/rankings/views.py:19`).
+- Endpoints afectados hoy (exigen JWT por defecto):
+  - `CompetitionViewSet` (`apps/competitions/views.py:33-42`) → `GET /api/v1/competitions/` y `GET /api/v1/competitions/{id}/`.
+  - `CompetitionStageViewSet` (`apps/events/views.py:37-40`) → `GET /api/v1/competition-stages/?competition={id}`.
+  - `EventViewSet` (`apps/events/views.py:53-57`) → `GET /api/v1/events/?competition_stage={id}`.
+- `CompetitionSerializer` ya embebe `competition_type`, `status`, `affiliation` y `location` (solo lectura) →
+  la página pública de detalle no requiere llamadas adicionales a catálogos.
+- Los tres ViewSets mantienen filtros (django-filter) y búsquedas existentes: no se tocan.
+- Fixtures disponibles en `tests/conftest.py`: `user`, `superadmin`, `competition_type`, `status_competition`, `affiliation`, `location`, `competition`, `stage_qualifier`, `stage_final`, `event`, etc.
+- Patrón de tests API en `tests/test_api.py`: `rest_framework.test.APIClient`, `force_authenticate(user=...)`; anónimo = `APIClient()` sin autenticar.
+- `apps/users/permissions.py` contiene `IsSuperAdmin` (permiso global) y `IsCompetitionAdmin` (a nivel objeto). No se modifica salvo que se opte por la alternativa del mixin (ver Fase 1).
 
 ---
 
 ## Pre-requisitos antes de implementar
 
-1. `.env` configurado, PostgreSQL arriba (`docker compose up`) y **migraciones ya aplicadas** (las ejecuta el usuario).
-2. El usuario completa los `[COMPLETAR]` restantes en `PROMPT.md` (Parte II, sección 9):
-   - Nombres y años de las 4 competencias (2 CROSSFIT + 2 HYROX).
-   - Nombres/ciudades de las 6 affiliations ("box") y 4 locations.
-   - Nombres de los WODs (los tipos y direcciones ya están definidos en el plan).
-   - `qualification_count` deseado por fase QUALIFIER (sugerencia: 2 para demostración).
-3. Confirmar que no existen datos previos de prueba colisionando (el seed usa claves estables).
+1. `.env` listo y entorno levantado (o `pip install -r requirements.txt` en local).
+2. Conocer el código real de los archivos objetivo (verificar líneas antes de cada edición).
+3. Suite de tests actual en verde (81 tests) antes de empezar (Fase 0 lo confirma).
+4. Confirmar con el usuario el **enfoque** (Fase 1): `IsAuthenticatedOrReadOnly` directo vs mixin.
 
 ---
 
 ## Fase 0 — Preparación y verificación inicial
 
-### Paso 0.1: Ejecutar verificaciones de línea base (solo lectura)
+### Paso 0.1: Verificaciones de línea base (solo lectura)
 
 ```bash
 python manage.py check --settings=config.settings.development
 python manage.py spectacular --validate --settings=config.settings.development
+python manage.py makemigrations --check --settings=config.settings.development
 python -m pytest tests --settings=config.settings.development
 ```
 
-**Criterio:** 0 issues, schema OK, suite completa en verde (78 passed). Registrar en `Process.md`.
+**Criterio:** 0 issues, schema OK, "No changes" en migraciones, suite completa en verde (81 passed).
+Registrar en `Process.md` (nueva fila de iteración "Public GETs").
 
-### Paso 0.2: Anotar datos definidos por el usuario
+### Paso 0.2: Confirmar el estado del frontend
 
-Volcar en `Process.md` los valores definitivos de las secciones `[COMPLETAR]` de `PROMPT.md` para usar como claves estables del seed.
+- `PROMPT-frontend.md` no está presente actualmente en el repo (verificado). Si reaparece antes de implementar, revisar su sección 12 y la tabla de endpoints (Fase 6 lo documentará si existe).
 
 ---
 
-## Fase 1 — Estructurar el command `seed_data` (refactor sin cambio de comportamiento)
+## Fase 1 — Decisión de enfoque de permisos
 
-### Paso 1.1: Organizar por métodos
+### Paso 1.1: Elegir opción
 
-Reestructurar `apps/users/management/commands/seed_data.py` manteniendo los métodos existentes y agregando (al estyy) los helpers de esta actualización:
+| Opción | Descripción | Juicio |
+|--------|-------------|--------|
+| **A (recomendado)** | Añadir `permission_classes = (IsAuthenticatedOrReadOnly,)` en cada uno de los 3 ViewSets objetivo. | Simple, explícito, consistente con `LeaderboardViewSet`. Sin archivos nuevos. |
+| **B (alternativa)** | Crear mixin `PublicReadOnly(IsAuthenticatedOrReadOnly)` en `apps/users/permissions.py` y aplicarlo a los 3 ViewSets. | Centraliza la regla, pero añade abstracción innecesaria para solo 3 vistas. |
 
-```
-handle()
-├── _seed_roles()                       # existente
-├── _seed_competition_types()           # existente
-├── _seed_statuses()                    # existente
-├── _seed_event_result_types()          # existente
-├── _seed_rank_directions()             # existente
-├── _seed_categories()                  # EXISTENTE + extensiones (Fase 2)
-├── _seed_affiliations()                # NUEVO (Fase 3)
-├── _seed_locations()                   # NUEVO (Fase 3)
-├── _seed_competitions_and_editions()   # NUEVO (Fase 4)
-├── _seed_enabled_categories()          # NUEVO (Fase 5)
-├── _seed_stages_and_events()           # NUEVO (Fase 6)
-├── _seed_scoring_rules()               # NUEVO (Fase 7)
-├── _seed_participants()                # NUEVO (Fase 8)
-├── _seed_results()                     # NUEVO (Fase 9)
-└── _compute_event_rankings()           # NUEVO (Fase 10)
-```
+**Decisión propuesta:** Opción A (más simple y consistente con el patrón existente). Confirmar con el usuario antes de implementar; si elige B, adaptar los pasos 2.2 y 3.2 para importar el mixin en lugar de la clase base.
 
-Importaciones nuevas necesarias:
+### Paso 1.2: Verificación
+
+Registrar la decisión en `Process.md`.
+
+---
+
+## Fase 2 — Abrir lectura de `CompetitionViewSet`
+
+### Paso 2.1: Importar la clase de permiso
+
+En `apps/competitions/views.py`, añadir el import (junto a los existentes de `rest_framework`):
 
 ```python
-from apps.competitions.models import Affiliation, Competition, CompetitionEdition, Location
-from apps.events.models import (
-    CompetitionCategory, CompetitionEnabledCategory, CompetitionStage,
-    Event, EventCompetitor, EventResultType, RankDirection, StatusEventCompetitor,
-)
-from apps.participants.models import Competitor, Person, Team, TeamMember
-from apps.scoring.models import ScoringRule
-from apps.events.services.event_ranking_service import EventRankingService
+from rest_framework.permissions import IsAuthenticatedOrReadOnly
 ```
 
----
+### Paso 2.2: Declarar `permission_classes` en `CompetitionViewSet`
 
-## Fase 2 — Categorías globales nuevas
-
-### Paso 2.1: Agregar al catálogo de `CompetitionCategory` (name es UNIQUE)
-
-Extensiones a `_seed_categories()` (conservando las 7 actuales):
-
-| Nombre | min_members | max_members |
-|--------|-------------|-------------|
-| Principiantes Individual | 1 | 1 |
-| Intermedios Individual | 1 | 1 |
-| RX Individual | 1 | 1 |
-| Principiantes Mixto | 2 | 2 |
-| Intermedios Duo | 2 | 2 |
-| Relevos 4 | 4 | 4 |
-
-**Implementación:** `get_or_create(name=..., defaults={'min_members': ..., 'max_members': ...})`.
-
-### Paso 2.2: Verificación
-
-Ejecutar el command → en consola "created". Ejecutar de nuevo → "exists" (sin duplicados).
-
----
-
-## Fase 3 — Affiliations y Locations
-
-### Paso 3.1: `_seed_affiliations()` — 6 registros
-
-| # | Nombre (clave estable, del usuario) | city | state | country |
-|---|--------------------------------------|------|-------|---------|
-| 1-4 | 4 "box" CrossFit (`[COMPLETAR]`) | `[COMPLETAR]` | `[COMPLETAR]` | `[COMPLETAR]` |
-| 5-6 | 2 "box" HYROX (`[COMPLETAR]`) | `[COMPLETAR]` | `[COMPLETAR]` | `[COMPLETAR]` |
-
-> Nota: `Affiliation` no tiene campo de tipo; la distinción crossfit/hyrox queda implícita en el nombre.
-
-### Paso 3.2: `_seed_locations()` — 4 registros
-
-| # | Uso | Nombre/sede (`[COMPLETAR]`) | address | city | country |
-|---|-----|------------------------------|---------|------|---------|
-| 1 | Comp CrossFit A | `[COMPLETAR]` | `[COMPLETAR]` | `[COMPLETAR]` | `[COMPLETAR]` |
-| 2 | Comp CrossFit B | `[COMPLETAR]` | `[COMPLETAR]` | `[COMPLETAR]` | `[COMPLETAR]` |
-| 3 | Comp HYROX A | `[COMPLETAR]` | `[COMPLETAR]` | `[COMPLETAR]` | `[COMPLETAR]` |
-| 4 | Comp HYROX B | `[COMPLETAR]` | `[COMPLETAR]` | `[COMPLETAR]` | `[COMPLETAR]` |
-
-**Regla de negocio:** `Competition` exige `affiliation` y `location` NO NULL (`PROTECT`) → cada competencia usa una affiliation + su location.
-
-### Paso 3.3: Verificación
-
-`Competition` aún no se crea en esta fase; verificar conteos tras la Fase 4.
-
----
-
-## Fase 4 — Competencias y ediciones
-
-### Paso 4.1: `_seed_competitions_and_editions()` — 4 competencias + 4 ediciones
-
-| # | Nombre (`[COMPLETAR]`) | Type | affiliation | location | Año (`[COMPLETAR]`) | start_date | end_date | status |
-|---|------------------------|------|-------------|----------|---------------------|------------|----------|--------|
-| 1 | CrossFit A | CROSSFIT | aff 1 | loc 1 | `[COMPLETAR]` | `[COMPLETAR]` | `[COMPLETAR]` | PUBLISHED |
-| 2 | CrossFit B | CROSSFIT | aff 2 | loc 2 | `[COMPLETAR]` | `[COMPLETAR]` | `[COMPLETAR]` | PUBLISHED |
-| 3 | HYROX A | HYROX | aff 5 | loc 3 | `[COMPLETAR]` | `[COMPLETAR]` | `[COMPLETAR]` | PUBLISHED |
-| 4 | HYROX B | HYROX | aff 6 | loc 4 | `[COMPLETAR]` | `[COMPLETAR]` | `[COMPLETAR]` | PUBLISHED |
-
-**Implementación:** guardar instancias en atributos del comando (`self.cf_a`, `self.cf_b`, `self.hy_a`, `self.hy_b` para reusar en fases siguientes). Usar `get_or_create(name=..., defaults={...})` y luego edición con `get_or_create(competition=..., year=..., defaults={...})`. Aviso: `UNIQUE(competition, year)`.
-
-### Paso 4.2: Verificación
-
-- `python manage.py shell -c "from apps.competitions.models import Competition, CompetitionEdition; print(Competition.objects.count(), CompetitionEdition.objects.count())"` → `4 4`.
-- Re-ejecutar seed → sigue `4 4`.
-
----
-
-## Fase 5 — Categorías habilitadas por edición
-
-### Paso 5.1: `_seed_enabled_categories()`
-
-| Edición | Categorías habilitadas |
-|---------|------------------------|
-| CrossFit A | Principiantes Individual, Intermedios Individual, Principiantes Mixto |
-| CrossFit B | Relevos 4 |
-| HYROX A | RX Individual |
-| HYROX B | RX Individual |
-
-**Implementación:** `CompetitionEnabledCategory.objects.get_or_create(competition_edition=self.cf_a, competition_category=<cat>, defaults={})` (unique_together edition+category). Guardar instancias por edición (p. ej. `self.cf_a_cats`) para Fase 8.
-
-### Paso 5.2: Verificación
-
-Conteo de enabled categories = `3 + 1 + 1 + 1 = 6`.
-
----
-
-## Fase 6 — Stages y eventos
-
-### Paso 6.1: `_seed_stages_and_events()` — stages
-
-| Edición | QUALIFIER (order 1) | FINAL (order 2) | qualification_count |
-|---------|--------------------|-----------------|---------------------|
-| CrossFit A | ✓ | ✓ | `[COMPLETAR]` (sug: 2) |
-| CrossFit B | ✓ | ✓ | `[COMPLETAR]` (sug: 2) |
-| HYROX A | ✓ | — | `[COMPLETAR]` (sug: 0) |
-| HYROX B | ✓ | — | `[COMPLETAR]` (sug: 0) |
-
-> Regla: un solo QUALIFIER y un solo FINAL por edición (validación a nivel modelo). Guardar instancias (`self.cf_a_qual`, `self.cf_a_fin`, etc.) para crear eventos.
-
-### Paso 6.2: Eventos por stage
-
-Usar `get_or_create(competition_stage=..., event_number=..., defaults={...})` (unique_together stage+event_number). Tipos/direcciones:
-
-| Competencia | Stage | Evento | event_number | ResultType | RankDirection |
-|-------------|-------|--------|--------------|------------|---------------|
-| CrossFit A | QUALIFIER | `[COMPLETAR]` WOD 1 | 1 | TIME | ASC |
-| CrossFit A | QUALIFIER | `[COMPLETAR]` WOD 2 | 2 | REPS | DESC |
-| CrossFit A | QUALIFIER | `[COMPLETAR]` WOD 3 | 3 | WEIGHT | DESC |
-| CrossFit A | FINAL | `[COMPLETAR]` WOD Final | 1 | TIME | ASC |
-| CrossFit B | QUALIFIER | `[COMPLETAR]` WOD 1 | 1 | TIME | ASC |
-| CrossFit B | QUALIFIER | `[COMPLETAR]` WOD 2 | 2 | REPS | DESC |
-| CrossFit B | QUALIFIER | `[COMPLETAR]` WOD 3 | 3 | WEIGHT | DESC |
-| CrossFit B | QUALIFIER | `[COMPLETAR]` WOD 4 | 4 | REPS o DISTANCE | DESC |
-| CrossFit B | FINAL | `[COMPLETAR]` WOD Final | 1 | TIME | ASC |
-| HYROX A | QUALIFIER | HYROX Race | 1 | TIME | ASC |
-| HYROX B | QUALIFIER | HYROX Race | 1 | TIME | ASC |
-
-Guardar las instancias de `Event` de cada stage (listas `self.cf_a_qual_events`, etc.) para la Fase 9.
-
-### Paso 6.3: Verificación
-
-Conteo eventos = `(3+1) + (4+1) + 1 + 1 = 11`. Sin violar `UNIQUE(stage, event_number)`.
-
----
-
-## Fase 7 — ScoringRules por edición
-
-### Paso 7.1: `_seed_scoring_rules()` — misma tabla en las 4 ediciones
-
-| Posición | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
-|----------|---|---|---|---|---|---|---|---|---|---|
-| Puntos | 100 | 94 | 88 | 82 | 76 | 70 | 64 | 58 | 52 | 46 |
-
-**Implementación:** para cada edición y posición: `get_or_create(competition_edition=edition, position=p, defaults={'points': pts})` (unique_together edition+position).
-
-### Paso 7.2: Verificación
-
-Conteo ScoringRule = `10 x 4 = 40`.
-
----
-
-## Fase 8 — Personas, equipos, competidores
-
-### Paso 8.1: `_seed_participants()`
-
-**Personas** (`get_or_create(first_name, last_name, defaults={...})`, names estables del usuario):
-
-- CrossFit A: 2 personas (Principiantes Ind), 1 persona (Intermedios Ind), 4 personas (2 equipos × 2 de Principiantes Mixto).
-- CrossFit B: 8 personas (2 equipos × 4 de Relevos 4).
-- HYROX A: 2 personas (RX Ind).
-- HYROX B: 2 personas (RX Ind).
-
-**Teams** (solo equipos): cada `Team` requiere `competition_edition` + `competition_enabled_category` (de la Fase 5) + `name`. Nombre estable por equipo.
-
-**TeamMembers:** linkean `team` + `person` (unique_together team+person).
-
-**Competitores** (regla en `clean()`: INDIVIDUAL → person requerida/team NULL; TEAM → team requerido/person NULL):
-
-| Edición | Competitor | tipo | vía |
-|---------|------------|------|-----|
-| CrossFit A | 2 categoría Principiantes Ind | INDIVIDUAL | person |
-| CrossFit A | 1 categoría Intermedios Ind | INDIVIDUAL | person |
-| CrossFit A | 2 categoría Principiantes Mixto | TEAM | team (2 TeamMembers c/u) |
-| CrossFit B | 2 categoría Relevos 4 | TEAM | team (4 TeamMembers c/u) |
-| HYROX A | 2 categoría RX Ind | INDIVIDUAL | person |
-| HYROX B | 2 categoría RX Ind | INDIVIDUAL | person |
-
-**Implementation note:** `competition_enabled_category` del competitor debe ser la habilitada en su edición. `registration_number` puede quedar vacío (`blank=True`) o asignarse secuencial estable (ej. `CFA-001`, ...) para repetibilidad.
-
-### Paso 8.2: Verificación
-
-Conteos: Personas = `4 + 8 + 2 + 2 = 16`; Teams = 4; TeamMembers = `(2×2) + (2×4) = 12`; Competitores = `3 + 2 + 2 + 2 = 9`.
-
----
-
-## Fase 9 — Resultados por evento
-
-### Paso 9.1: `_seed_results()`
-
-Para cada `Event` de cada edición y para cada `Competitor` de esa edición, crear:
+`apps/competitions/views.py` (clase actual en líneas 33-42). Añadir el atributo justo debajo del `queryset` (patrón de `LeaderboardViewSet`):
 
 ```python
-EventCompetitor.objects.get_or_create(
-    competitor=competitor,
-    event=event,
-    defaults={
-        'result': "<valor>",  # string; formato según result_type
-        'status': status_valid,
-    },
-)
+class CompetitionViewSet(viewsets.ModelViewSet):
+    permission_classes = (IsAuthenticatedOrReadOnly,)
+    queryset = Competition.objects.all()
+    serializer_class = CompetitionSerializer
+    ...
 ```
 
-- `result` con formato correcto por tipo (TIME "HH:MM:SS"/"MM:SS"; REPS/POINTS int; WEIGHT/DISTANCE decimal).
-- `event_rank`/`score` se dejan `None` aquí (se calculan en Fase 10).
-- `status` = catálogo `VALID` (de la Fase existente 0).
-- unique_together competitor+event evita duplicados.
+**No cambiar** `get_serializer_class()` ni filtros.
 
-**Resultados sintáticos sugeridos (valores concretos de prueba con direcciones ASC/DESC que produzcan ordenes distintos):** definirlos en `Process.md` al momento de implementar (TABLAS_REV: p. ej. CrossFit A WOD1 (TIME): podio "04:36", "04:52", "05:10" para los 3 individuales, etc.).
+### Paso 2.3: Verificación estática
 
-### Paso 9.2: Verificación
-
-Conteo EventCompetitor = nº de (Competitor × Event) por edición donde corresponde:
-- CrossFit A: 3 individuales × 3 qualifier + 3 × 1 final + 2 equipos × 4 eventos = 21.
-- CrossFit B: 2 equipos × 5 eventos = 10.
-- HYROX A/B: 2 × 1 = 2 c/u.
-Total = 35.
+- `python manage.py check --settings=config.settings.development`.
 
 ---
 
-## Fase 10 — Calcular rankings (`event_rank` + `score`)
+## Fase 3 — Abrir lectura de `CompetitionStageViewSet` y `EventViewSet`
 
-### Paso 10.1: `_compute_event_rankings()`
+### Paso 3.1: Importar la clase de permiso
 
-Para cada `Event` del sistema creado:
+En `apps/events/views.py`, añadir:
 
 ```python
-EventRankingService.calculate_event_ranking(event)
+from rest_framework.permissions import IsAuthenticatedOrReadOnly
 ```
 
-Esto parsea resultados (`ResultParser`), ordena por dirección, aplica ranking denso y asigna `event_rank` + `score` por `ScoringRule` de la edición. **Es requisito para que el leaderboard muestre sitios puntuados.**
+### Paso 3.2: `CompetitionStageViewSet`
 
-### Paso 10.2: Verificación
+`apps/events/views.py:37-40`. Añadir `permission_classes`:
 
-- `EventCompetitor` sin `event_rank` ni `score` = 0.
-- Empates resultantes siguen patrón `1, 2, 2, 4`.
+```python
+class CompetitionStageViewSet(viewsets.ModelViewSet):
+    permission_classes = (IsAuthenticatedOrReadOnly,)
+    queryset = CompetitionStage.objects.all()
+    serializer_class = CompetitionStageSerializer
+    filterset_fields = ('competition', 'stage_type')
+```
+
+### Paso 3.3: `EventViewSet`
+
+`apps/events/views.py:53-57`:
+
+```python
+class EventViewSet(viewsets.ModelViewSet):
+    permission_classes = (IsAuthenticatedOrReadOnly,)
+    queryset = Event.objects.all()
+    serializer_class = EventSerializer
+    filterset_fields = ('competition_stage',)
+    search_fields = ('name',)
+```
+
+### Paso 3.4: Verificación estática
+
+- `python manage.py check --settings=config.settings.development` (0 issues).
 
 ---
 
-## Fase 11 — Idempotencia final del command
+## Fase 4 — Tests de permisos públicos (nuevos)
 
-### Paso 11.1: Revisar `get_or_create` en cada helper
+> Ubicación: `tests/test_api.py`, siguiendo el patrón existente de `APIClient`. Reutilizar fixtures de `conftest.py` (`competition`, `stage_qualifier`, `event`, `superadmin`, etc.).
+> Nota: las listas responden con paginación (`response.data['results']`).
 
-Claves estables: `Affiliation.name`, `Location.name`, `Competition.name`, `CompetitionEdition(competition, year)`, `CompetitionEnabledCategory`, `CompetitionStage`, `Event(stage, event_number)`, `ScoringRule(edition, position)`, `Person(first_name, last_name)`, `Team.name`, `TeamMember(team, person)`, `Competitor(person/team + edition + enabled_category)`, `EventCompetitor(competitor, event)`.
+### Paso 4.1: Añadir clase `TestAPIPublicReadOnly` al final de `tests/test_api.py`
 
-### Paso 11.2: Decisión de actualización
+```python
+@pytest.mark.django_db
+class TestAPIPublicReadOnly:
+    # --- competitions: lectura pública, escritura protegida ---
+    def test_competition_list_public(self, competition):
+        client = APIClient()
+        response = client.get('/api/v1/competitions/')
+        assert response.status_code == 200
+        assert len(response.data['results']) >= 1
 
-- Si un `EventCompetitor` ya existe con `result` distinto (cambio del usuario), actualizar `result` y eliminar `event_rank`/`score` para recalcular (`update_or_create`). **Documentar esta decisión en Process.md.**
+    def test_competition_detail_public(self, competition):
+        client = APIClient()
+        response = client.get(f'/api/v1/competitions/{competition.id}/')
+        assert response.status_code == 200
+        assert response.data['competition_type']['code'] == 'CROSSFIT'
+        assert 'status' in response.data
+        assert 'affiliation' in response.data
+        assert 'location' in response.data
 
-### Paso 11.3: Verificación
+    def test_competition_create_requires_auth(self, competition_type, status_competition, affiliation, location):
+        client = APIClient()
+        data = {  # mismo payload que TestAPICompetitions.test_create_competition
+            'name': 'Público Intruso',
+            'competition_type': competition_type.id,
+            'status': status_competition.id,
+            'affiliation': affiliation.id,
+            'location': location.id,
+            'description': '',
+            'start_date': '2027-07-01',
+            'end_date': '2027-07-03',
+            'slug': 'publico-intruso',
+        }
+        response = client.post('/api/v1/competitions/', data, format='json')
+        assert response.status_code == 401
 
-Ejecutar `seed_data` dos veces → conteos de la Fase 8/9 no varían.
+    def test_competition_destroy_requires_auth(self, competition):
+        client = APIClient()
+        response = client.delete(f'/api/v1/competitions/{competition.id}/')
+        assert response.status_code == 401
+
+    def test_competition_filter_public(self, competition):
+        client = APIClient()
+        response = client.get(f'/api/v1/competitions/?status={competition.status.id}')
+        assert response.status_code == 200
+
+    # --- competition-stages ---
+    def test_stage_list_public(self, stage_qualifier):
+        client = APIClient()
+        response = client.get(
+            f'/api/v1/competition-stages/?competition={stage_qualifier.competition.id}'
+        )
+        assert response.status_code == 200
+        assert len(response.data['results']) >= 1
+
+    def test_stage_create_requires_auth(self, competition):
+        client = APIClient()
+        data = {
+            'competition': competition.id,
+            'stage_type': 'QUALIFIER',
+            'qualification_count': 5,
+            'order': 1,
+        }
+        response = client.post('/api/v1/competition-stages/', data, format='json')
+        assert response.status_code == 401
+
+    # --- events ---
+    def test_event_list_public(self, event):
+        client = APIClient()
+        response = client.get(
+            f'/api/v1/events/?competition_stage={event.competition_stage.id}'
+        )
+        assert response.status_code == 200
+        assert len(response.data['results']) == 1
+
+    def test_event_create_requires_auth(self, event):
+        client = APIClient()
+        data = {
+            'competition_stage': event.competition_stage.id,
+            'event_number': 99,
+            'name': 'WOD Intruso',
+            'event_result_type': event.event_result_type_id,
+            'rank_direction': event.rank_direction_id,
+        }
+        response = client.post('/api/v1/events/', data, format='json')
+        assert response.status_code == 401
+
+    # --- regresión con autenticación ---
+    def test_public_reads_work_with_superadmin(self, superadmin, competition,
+                                               stage_qualifier, event):
+        client = APIClient()
+        client.force_authenticate(user=superadmin)
+        assert client.get('/api/v1/competitions/').status_code == 200
+        assert client.get(
+            f'/api/v1/competition-stages/?competition={competition.id}').status_code == 200
+        assert client.get(
+            f'/api/v1/events/?competition_stage={stage_qualifier.id}').status_code == 200
+
+    # --- leaderboards siguen públicos ---
+    def test_leaderboard_still_public(self, competition):
+        client = APIClient()
+        response = client.get(
+            f'/api/v1/leaderboards/competition/{competition.id}/qualifier/'
+        )
+        assert response.status_code in (200, 404)
+```
+
+### Paso 4.2: Verificar campos del serializer antes de escribir el test de detalle
+
+- Confirmar en `apps/competitions/serializers.py` (`CompetitionSerializer`) que los campos anidados se llaman `competition_type`, `status`, `affiliation`, `location` (verificado: sí). Ajustar el test si cambia algo.
+
+### Paso 4.3: Ejecutar los tests nuevos
+
+```bash
+python -m pytest tests/test_api.py --settings=config.settings.development -v
+```
+
+**Criterio:** todos los casos nuevos en verde y sin cambios en los existentes (uno a uno de los asserts:
+el POST/DELETE anónimo devuelve **401**; el GET anónimo devuelve **200**).
 
 ---
 
-## Fase 12 — Verificación final
+## Fase 5 — Verificación completa
 
-### Paso 12.1: Checks estáticos
+### Paso 5.1: Suite completa
+
+```bash
+python -m pytest tests --settings=config.settings.development
+```
+
+**Criterio:** verde, con los tests nuevos añadidos (81 existentes + ~11 nuevos ≈ 92).
+
+### Paso 5.2: Checks estáticos
 
 ```bash
 python manage.py check --settings=config.settings.development
 python manage.py spectacular --validate --settings=config.settings.development
 ```
 
-### Paso 12.2: Suite de tests
+**Criterio:** 0 issues, schema OpenAPI válido.
+
+### Paso 5.3: Confirmar que NO hay migraciones
 
 ```bash
-python -m pytest tests --settings=config.settings.development
+python manage.py makemigrations --check --settings=config.settings.development
 ```
 
-Debe seguir en verde (el seed no altera testgear). **Opcional:** agregar `tests/test_seed.py` que ejecute `call_command('seed_data')` dos veces y verifique idempotencia + conteos.
+**Criterio:** "No changes detected" (no se generan migraciones; no hay tareas manuales de migración).
 
-### Paso 12.3: Verificación API (con servidor corriendo)
+### Paso 5.4: Smoke test manual (opcional, con server corriendo)
 
 ```bash
 python manage.py runserver --settings=config.settings.development
 ```
 
-| Endpoint | Esperado |
-|----------|----------|
-| `GET /api/v1/competition-types/` | CROSSFIT + HYROX |
-| `GET /api/v1/competitions/` | 4 competencias |
-| `GET /api/v1/competition-categories/` | 7 + 6 = 13 categorías |
-| `GET /api/v1/leaderboards/edition/{cf_a_id}/qualifier/` | Leaderboard con scores y posiciones (HTTP 200) |
-| `GET /api/v1/leaderboards/edition/{cf_a_id}/final/` | Ranking independiente del qualifier (HTTP 200) |
-| `GET /api/v1/leaderboards/edition/{cf_b_id}/qualifier/` | Equipos de 4 con scores |
-| `GET /api/v1/leaderboards/edition/{hy_a_id}/qualifier/` | RX individual (HTTP 200) |
-
-### Paso 12.4: Django Admin
-
-Login como admin → revisar CompetitionEdition, Events, EventCompetitor (list_display muestra rank/score calculados).
+| Endpoint | Anónimo (sin header) | Esperado |
+|----------|----------------------|----------|
+| `GET /api/v1/competitions/` | sin token | 200 + listado |
+| `GET /api/v1/competitions/{id}/` | sin token | 200 + detalle con type/status/affiliation/location |
+| `GET /api/v1/competition-stages/?competition={id}` | sin token | 200 |
+| `GET /api/v1/events/?competition_stage={id}` | sin token | 200 |
+| `POST /api/v1/events/` | sin token | 401 |
+| `GET /api/v1/leaderboards/competition/{id}/qualifier/` | sin token | 200 (sin cambios) |
 
 ---
 
-## Fase 13 — Documentación
+## Fase 6 — Documentación
 
-### Paso 13.1: `Process.md`
+### Paso 6.1: `Process.md`
 
-Registrar por fases: qué se hizo, datos definidos (tablas de cada sección), verificaciones y resultados.
+- Agregar fila de iteración "Public GETs" en la tabla de estado.
+- Registrar por fase: decisión de enfoque (Fase 1), ediciones hechas (Fases 2-3), tests añadidos (Fase 4), resultados de verificación (Fase 5).
 
-### Paso 13.2: `RESULTADOS.md`
+### Paso 6.2: `RESULTADOS.md`
 
-Resumen final: comandos, conteos confirmados, endpoints verificados, problemas encontrados y soluciones (p. ej. rank/score calculados tras seed).
+- Resumen final: archivos modificados, tests añadidos (conteo final), verificaciones OK, problema/solución si lo hubo (p. ej. si `IsAuthenticatedOrReadOnly` afectara algún detalle del schema o si la paginación interfiere en un assert).
 
-### Paso 13.3: `README.md`
+### Paso 6.3: `README.md` — secciones API y seguridad
 
-`[Según PROMPT sección 8]` — mención de `seed_data` ampliado con datos de ejemplo (opcional).
+- En la nota tras la tabla de la API (línea ~177): indicar que además de los leaderboards, los GET de `competitions`, `competition-stages` y `events` son **públicos de solo lectura**; las escrituras siguen requiriendo JWT.
+- Si existe sección de seguridad que liste "Leaderboards públicos", ampliarla con "Lectura pública de competencias/etapas/eventos".
+
+### Paso 6.4: `PROMPT-frontend.md` (si el archivo existe/regresa)
+
+- Sección 12: marcar la decisión como **resuelta** (opción "abrir GET públicos" implementada).
+- Tabla de endpoints: las filas marcadas como "Pública pendiente (hoy JWT)" → "Pública (AllowAny)".
+- Estado actual verificable: el archivo no está en el repo en este momento → si al implementar no existe, omitirlo y anotarlo en `Process.md`.
 
 ---
 
-## Fase 14 — Cierre manual del usuario
+## Fase 7 — Cierre
 
-El usuario debe ejecutar (fuera del agente):
+### Paso 7.1: Reporte final al usuario
 
-```bash
-docker compose up --build
-docker compose exec web python manage.py seed_data
-docker compose exec web python manage.py createsuperuser   # solo si falta
-```
+Resumen de: qué se cambió (3 archivos de código si se elige Opción A), tests añadidos, verificaciones, y **pasos manuales del usuario** (ninguno de migración; opcional smoke test del punto 5.4).
+
+### Paso 7.2: No ejecutar nada pendiente
+
+Sin migraciones/seed/createsuperuser pendientes. Única acción opcional del usuario: recrear/inspeccionar `PROMPT-frontend.md` para que refleje el estado público del backend.
 
 ---
 
@@ -415,24 +366,25 @@ docker compose exec web python manage.py createsuperuser   # solo si falta
 
 | # | Archivo | Tipo | Fase |
 |---|---------|------|------|
-| 1 | `apps/users/management/commands/seed_data.py` | modificar (ampliar) | 1-11 |
-| 2 | `tests/test_seed.py` | crear (opcional) | 12 |
-| 3 | `Process.md` | modificar | todas |
-| 4 | `RESULTADOS.md` | modificar | 13 |
-| 5 | `README.md` | modificar (opcional) | 13 |
+| 1 | `apps/competitions/views.py` | modificar (`CompetitionViewSet` + import) | 2 |
+| 2 | `apps/events/views.py` | modificar (`CompetitionStageViewSet`, `EventViewSet` + import) | 3 |
+| 3 | `tests/test_api.py` | modificar (nueva clase `TestAPIPublicReadOnly`) | 4 |
+| 4 | `Process.md` | modificar (registro de iteración) | 0,1,6 |
+| 5 | `RESULTADOS.md` | modificar | 6 |
+| 6 | `README.md` | modificar (sección API/seguridad) | 6 |
+| 7 | `PROMPT-frontend.md` | modificar **si existe** (sección 12 + tabla) | 6 |
 
-**No se modifican:** modelos, migraciones, serializers, views, urls, services, API.
+**No se modifican:** modelos, migraciones, serializers, services, urls, `config/settings/base.py`,
+`LeaderboardViewSet`, `apps/users/permissions.py` (salvo Opción B en Fase 1).
 
 ---
 
 ## Orden de ejecución recomendado
 
 ```
-Fase 0 (línea base) → Fase 1 (estructura seed) → Fase 2 (categorías) → Fase 3 (aff/loc)
-→ Fase 4 (competencias+ediciones) → Fase 5 (categorías habilitadas) → Fase 6 (stages+eventos)
-→ Fase 7 (scoring rules) → Fase 8 (personas/equipos/competidores) → Fase 9 (resultados)
-→ Fase 10 (cálculo de rankings) → Fase 11 (idempotencia) → Fase 12 (verificación)
-→ Fase 13 (documentación) → Fase 14 (pasos manuales del usuario)
+Fase 0 (línea base) → Fase 1 (decisión de enfoque) → Fase 2 (CompetitionViewSet)
+→ Fase 3 (Stage + Event ViewSets) → Fase 4 (tests de permisos) → Fase 5 (verificación completa)
+→ Fase 6 (documentación) → Fase 7 (cierre y reporte)
 ```
 
-**Total estimado:** ~1 comando modificado + 1 test opcional + 3 docs. Sin cambios estructurales.
+**Total estimado:** 2 archivos de código + 1 archivo de tests + 3-4 docs. Sin cambios en el modelo de datos.

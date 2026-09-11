@@ -6,10 +6,14 @@ from apps.participants.models import Competitor
 
 class LeaderboardEntrySerializer(serializers.Serializer):
     rank = serializers.IntegerField()
-    competitor_id = serializers.IntegerField()
+    competitor_id = serializers.IntegerField(source='competitor.id', read_only=True)
     display_name = serializers.SerializerMethodField()
     final_score = serializers.IntegerField()
     event_ranks = serializers.ListField(child=serializers.IntegerField())
+    event_scores = serializers.ListField(
+        child=serializers.IntegerField(allow_null=True),
+        required=False,
+    )
 
     @extend_schema_field(serializers.CharField)
     def get_display_name(self, obj):
