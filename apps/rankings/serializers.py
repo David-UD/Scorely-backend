@@ -15,7 +15,7 @@ class LeaderboardEntrySerializer(serializers.Serializer):
     def get_display_name(self, obj):
         competitor = obj['competitor']
         if competitor.competitor_type == Competitor.CompetitorType.INDIVIDUAL:
-            return str(competitor.person)
+            return str(competitor.athlete)
         return competitor.team.name
 
 

@@ -1,10 +1,10 @@
 from django.contrib import admin
 
-from .models import Competitor, Person, Team, TeamMember
+from .models import Athlete, Competitor, Team, TeamMember
 
 
-@admin.register(Person)
-class PersonAdmin(admin.ModelAdmin):
+@admin.register(Athlete)
+class AthleteAdmin(admin.ModelAdmin):
     list_display = ('first_name', 'last_name', 'birth_date', 'gender', 'affiliation')
     search_fields = ('first_name', 'last_name')
     list_filter = ('gender',)
@@ -13,20 +13,20 @@ class PersonAdmin(admin.ModelAdmin):
 
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
-    list_display = ('name', 'competition_edition', 'competition_enabled_category', 'affiliation')
+    list_display = ('name', 'competition', 'affiliation')
     search_fields = ('name',)
-    autocomplete_fields = ('competition_edition', 'competition_enabled_category', 'affiliation')
+    autocomplete_fields = ('competition', 'affiliation')
 
 
 @admin.register(TeamMember)
 class TeamMemberAdmin(admin.ModelAdmin):
-    list_display = ('team', 'person')
-    autocomplete_fields = ('team', 'person')
+    list_display = ('team', 'athlete')
+    autocomplete_fields = ('team', 'athlete')
 
 
 @admin.register(Competitor)
 class CompetitorAdmin(admin.ModelAdmin):
-    list_display = ('registration_number', 'competitor_type', 'person', 'team', 'competition_edition')
-    list_filter = ('competitor_type', 'competition_edition')
+    list_display = ('registration_number', 'competitor_type', 'athlete', 'team', 'competition')
+    list_filter = ('competitor_type', 'competition')
     search_fields = ('registration_number',)
-    autocomplete_fields = ('competition_edition', 'person', 'team', 'competition_enabled_category')
+    autocomplete_fields = ('competition', 'athlete', 'team', 'enabled_competition_category')

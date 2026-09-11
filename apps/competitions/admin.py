@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Affiliation, Competition, CompetitionEdition, CompetitionType, Location
+from .models import Affiliation, Competition, CompetitionType, Location, StatusCompetition
 
 
 @admin.register(CompetitionType)
@@ -23,17 +23,15 @@ class LocationAdmin(admin.ModelAdmin):
     list_filter = ('country', 'state')
 
 
+@admin.register(StatusCompetition)
+class StatusCompetitionAdmin(admin.ModelAdmin):
+    list_display = ('code', 'name')
+    search_fields = ('code', 'name')
+
+
 @admin.register(Competition)
 class CompetitionAdmin(admin.ModelAdmin):
-    list_display = ('name', 'competition_type', 'affiliation', 'location')
+    list_display = ('name', 'competition_type', 'status', 'affiliation', 'location', 'year', 'start_date')
+    list_filter = ('competition_type', 'status', 'year')
     search_fields = ('name',)
-    list_filter = ('competition_type',)
-    autocomplete_fields = ('competition_type', 'affiliation', 'location')
-
-
-@admin.register(CompetitionEdition)
-class CompetitionEditionAdmin(admin.ModelAdmin):
-    list_display = ('competition', 'year', 'start_date', 'end_date', 'status')
-    list_filter = ('status', 'year')
-    search_fields = ('competition__name',)
-    autocomplete_fields = ('competition',)
+    autocomplete_fields = ('competition_type', 'status', 'affiliation', 'location')

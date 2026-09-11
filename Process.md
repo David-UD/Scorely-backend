@@ -6,23 +6,62 @@ Seguimiento en tiempo real de la ejecución del PLAN.md.
 
 ## Estado General
 
-| Fase | Estado | Inicio | Fin |
-|------|--------|--------|-----|
-| 0 — Infraestructura | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
-| 1 — Users | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
-| 2 — Competitions | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
-| 3 — Participants | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
-| 4 — Events | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
-| 5 — Scoring | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
-| 6 — Services | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
-| 7 — Rankings | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
-| 8 — API REST | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
-| 9 — Security | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
-| 10 — Django Admin | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
-| 11 — Seed Data | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
-| 12 — Documentación | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
-| 13 — Testing | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
-| 14 — Verificación Final | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
+| Iteración | Fase | Estado | Inicio | Fin |
+|-----------|------|--------|--------|-----|
+| Build | 0–14 | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
+| Seed Update | 0–14 | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
+
+---
+
+## Iteración Build (Fases 0–14) — Completa
+
+Ver ediciones anteriores. Resultado: 78/78 tests, 14/14 fases completadas.
+
+---
+
+## Iteración Seed Update (09/09/2026) — Completa
+
+Ampliación del comando `seed_data` para incluir competiciones, ediciones, etapas, eventos, participantes y resultados de demostración.
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|---------|--------|
+| `apps/users/management/commands/seed_data.py` | Reescritura completa: `seed_data()` ahora crea datos de demo (afiliaciones, ubicaciones, competiciones, ediciones, categorías habilitadas, etapas, eventos, reglas de scoring, participantes, competidores, resultados y ranking por evento). 15 métodos auxiliares, 307 líneas. |
+| `tests/test_seed.py` | **Nuevo.** 4 tests: conteo de datos demo, idempotencia (2 ejecuciones consecutivas), ranking calculado y categorías globales. |
+| `PLAN.md` | **Nuevo.** Plan de 14 fases para la ampliación del seed (valores demo, especificación, verificación). |
+| `PROMPT.md` | Reestructurado como plantilla reutilizable (Parte I: contexto fijo, Parte II: especificación con [COMPLETAR], Parte III: reglas de agente). Parte II completada con "Seed de datos de prueba". |
+| `RESULTADOS.md` | Actualizado con 82 tests, detalle de seed y problemas encontrados. |
+
+### Qué crea `seed_data` (valores demo)
+
+| Tipo | Cantidad | Detalle |
+|------|----------|---------|
+| Afiliaciones | 6 | 4 CrossFit + 2 HYROX |
+| Ubicaciones | 4 | Box Centro, Box Norte, Box Sur, Box Este |
+| Competiciones | 4 | 2 CF (Open 2026, Showdown) + 2 HYROX (Madrid, Barcelona) |
+| Ediciones | 4 | 2026 para cada competición |
+| Categorías habilitadas | 6 | Principiantes/Intermedios/RX Individual, Principiantes Mixto, Intermedios Duo, Relevos 4 |
+| Etapas | 6 | 1 Qualifier + 1 Final por edición × 4 ediciones (2 finales solo CF) |
+| Eventos | 11 | 5×CF-A (Fran, AMRAP, Snatch, Run 5K, WOD Final) + 5×CF-B (idénticos) + 1×HYROX-A (1500m Row) + 1×HYROX-B (1500m Row) |
+| Scoring Rules | 40 | Tabla completa por edición (1→100, 2→94, … 10→46) |
+| Personas | 19 | 7 CF-A + 8 CF-B + 2 HY-A + 2 HY-B |
+| Equipos | 4 | 2 DUO (CF-A) + 2 RELAY (CF-B) |
+| Miembros de equipo | 12 | 2×2 DUO + 2×4 RELAY |
+| Competidores | 11 | 3 individual + 2 team (CF-A) + 2 team (CF-B) + 2 individual (HY-A) + 2 individual (HY-B) |
+| EventCompetitors | 34 | 5×4 (CF-A) + 2×5 (CF-B) + 2×1 (HY-A) + 2×1 (HY-B) |
+
+### Idempotencia
+
+`get_or_create` / `update_or_create` con filtros únicos. Ejecutar `seed_data` 2 veces produce exactamente los mismos conteos. Test verificado: `test_seed_data_is_idempotent`.
+
+### Problemática
+
+| # | Problema | Solución |
+|---|----------|----------|
+| 1 | Resultado "21:15" para evento tipo DISTANCE en `Run 5K` | Cambiado a "5000" y "4850" (metros) con `rank_direction=desc` |
+| 2 | Test `test_seed.py` esperaba 16 personas | Corregido a 19 (7+8+2+2) |
+| 3 | `ScoringRule` importado desde `apps.events.models` | Corregido a `apps.scoring.models` |
 
 ---
 

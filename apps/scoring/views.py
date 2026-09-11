@@ -7,4 +7,4 @@ from .serializers import ScoringRuleSerializer
 class ScoringRuleViewSet(viewsets.ModelViewSet):
     queryset = ScoringRule.objects.all()
     serializer_class = ScoringRuleSerializer
-    filterset_fields = ('competition_edition',)
+    filterset_fields = ('competition',)

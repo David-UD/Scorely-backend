@@ -1,10 +1,8 @@
 from rest_framework import viewsets
 
-from .models import Affiliation, Competition, CompetitionEdition, CompetitionType, Location
+from .models import Affiliation, Competition, CompetitionType, Location
 from .serializers import (
     AffiliationSerializer,
-    CompetitionEditionSerializer,
-    CompetitionEditionWriteSerializer,
     CompetitionSerializer,
     CompetitionTypeSerializer,
     CompetitionWriteSerializer,
@@ -36,21 +34,9 @@ class CompetitionViewSet(viewsets.ModelViewSet):
     queryset = Competition.objects.all()
     serializer_class = CompetitionSerializer
     search_fields = ('name',)
-    filterset_fields = ('competition_type',)
+    filterset_fields = ('competition_type', 'status')
 
     def get_serializer_class(self):
         if self.action in ('create', 'update', 'partial_update'):
             return CompetitionWriteSerializer
         return CompetitionSerializer
-
-
-class CompetitionEditionViewSet(viewsets.ModelViewSet):
-    queryset = CompetitionEdition.objects.all()
-    serializer_class = CompetitionEditionSerializer
-    filterset_fields = ('status', 'year')
-    search_fields = ('competition__name',)
-
-    def get_serializer_class(self):
-        if self.action in ('create', 'update', 'partial_update'):
-            return CompetitionEditionWriteSerializer
-        return CompetitionEditionSerializer

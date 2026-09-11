@@ -3,59 +3,55 @@ import pytest
 from apps.competitions.models import (
     Affiliation,
     Competition,
-    CompetitionEdition,
     CompetitionType,
     Location,
+    StatusCompetition,
 )
 from apps.events.models import (
     CompetitionCategory,
-    CompetitionEnabledCategory,
     CompetitionStage,
+    EnabledCompetitionCategory,
     Event,
     EventResultType,
     RankDirection,
     StatusEventCompetitor,
 )
-from apps.participants.models import Competitor, Person, Team, TeamMember
+from apps.participants.models import Athlete, Competitor, Team, TeamMember
 from apps.scoring.models import ScoringRule
-from apps.users.models import Role, User
+from apps.users.models import User
 
 
 @pytest.fixture
-def role_superadmin(db):
-    return Role.objects.create(code='SUPERADMIN', name='Superadmin')
-
-
-@pytest.fixture
-def role_admin(db):
-    return Role.objects.create(code='ADMIN', name='Admin')
-
-
-@pytest.fixture
-def user(db, role_admin):
+def user(db):
     return User.objects.create_user(
         email='test@scorely.com',
         password='testpass123',
         first_name='Test',
         last_name='User',
-        role=role_admin,
     )
 
 
 @pytest.fixture
-def superadmin(db, role_superadmin):
+def superadmin(db):
     return User.objects.create_user(
         email='super@scorely.com',
         password='superpass123',
         first_name='Super',
         last_name='Admin',
-        role=role_superadmin,
+        is_active=True,
+        is_staff=True,
+        is_superuser=True,
     )
 
 
 @pytest.fixture
 def competition_type(db):
     return CompetitionType.objects.create(code='CROSSFIT', name='CrossFit')
+
+
+@pytest.fixture
+def status_competition(db):
+    return StatusCompetition.objects.create(code='PUBLISHED', name='Published')
 
 
 @pytest.fixture
@@ -80,23 +76,16 @@ def location(db):
 
 
 @pytest.fixture
-def competition(db, competition_type, affiliation, location):
+def competition(db, competition_type, status_competition, affiliation, location):
     return Competition.objects.create(
         competition_type=competition_type,
+        status=status_competition,
         affiliation=affiliation,
         location=location,
         name='TJ Summer Games',
-    )
-
-
-@pytest.fixture
-def edition(db, competition):
-    return CompetitionEdition.objects.create(
-        competition=competition,
-        year=2028,
         start_date='2028-07-01',
         end_date='2028-07-03',
-        status=CompetitionEdition.Status.PUBLISHED,
+        slug='tj-summer-games',
     )
 
 
@@ -119,25 +108,25 @@ def team_category(db):
 
 
 @pytest.fixture
-def enabled_category(db, edition, category):
-    return CompetitionEnabledCategory.objects.create(
-        competition_edition=edition,
+def enabled_category(db, competition, category):
+    return EnabledCompetitionCategory.objects.create(
+        competition=competition,
         competition_category=category,
     )
 
 
 @pytest.fixture
-def enabled_team_category(db, edition, team_category):
-    return CompetitionEnabledCategory.objects.create(
-        competition_edition=edition,
+def enabled_team_category(db, competition, team_category):
+    return EnabledCompetitionCategory.objects.create(
+        competition=competition,
         competition_category=team_category,
     )
 
 
 @pytest.fixture
-def stage_qualifier(db, edition):
+def stage_qualifier(db, competition):
     return CompetitionStage.objects.create(
-        competition_edition=edition,
+        competition=competition,
         stage_type=CompetitionStage.StageType.QUALIFIER,
         qualification_count=5,
         order=1,
@@ -145,9 +134,9 @@ def stage_qualifier(db, edition):
 
 
 @pytest.fixture
-def stage_final(db, edition):
+def stage_final(db, competition):
     return CompetitionStage.objects.create(
-        competition_edition=edition,
+        competition=competition,
         stage_type=CompetitionStage.StageType.FINAL,
         qualification_count=0,
         order=2,
@@ -206,7 +195,7 @@ def status_disqualified(db):
 
 
 @pytest.fixture
-def scoring_rules(db, edition):
+def scoring_rules(db, competition):
     rules_data = [
         (1, 100),
         (2, 94),
@@ -217,7 +206,7 @@ def scoring_rules(db, edition):
     rules = []
     for position, points in rules_data:
         rules.append(ScoringRule.objects.create(
-            competition_edition=edition,
+            competition=competition,
             position=position,
             points=points,
         ))
@@ -225,8 +214,8 @@ def scoring_rules(db, edition):
 
 
 @pytest.fixture
-def person(db):
-    return Person.objects.create(
+def athlete(db):
+    return Athlete.objects.create(
         first_name='John',
         last_name='Doe',
         birth_date='1995-05-15',
@@ -235,36 +224,35 @@ def person(db):
 
 
 @pytest.fixture
-def competitor(db, edition, enabled_category, person):
+def competitor(db, competition, enabled_category, athlete):
     return Competitor.objects.create(
-        competition_edition=edition,
+        competition=competition,
         competitor_type=Competitor.CompetitorType.INDIVIDUAL,
-        person=person,
+        athlete=athlete,
         registration_number='C001',
-        competition_enabled_category=enabled_category,
+        enabled_competition_category=enabled_category,
     )
 
 
 @pytest.fixture
-def team(db, edition, enabled_team_category):
+def team(db, competition):
     return Team.objects.create(
-        competition_edition=edition,
-        competition_enabled_category=enabled_team_category,
+        competition=competition,
         name='LOS TD-AH',
     )
 
 
 @pytest.fixture
-def team_member(db, team, person):
-    return TeamMember.objects.create(team=team, person=person)
+def team_member(db, team, athlete):
+    return TeamMember.objects.create(team=team, athlete=athlete)
 
 
 @pytest.fixture
-def team_competitor(db, edition, enabled_team_category, team):
+def team_competitor(db, competition, enabled_team_category, team):
     return Competitor.objects.create(
-        competition_edition=edition,
+        competition=competition,
         competitor_type=Competitor.CompetitorType.TEAM,
         team=team,
         registration_number='T001',
-        competition_enabled_category=enabled_team_category,
+        enabled_competition_category=enabled_team_category,
     )

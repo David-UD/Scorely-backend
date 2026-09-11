@@ -1,6 +1,6 @@
 from rest_framework import permissions
 
-from .models import CompetitionEditionAdmin
+from .models import CompetitionAdmin
 
 
 class IsSuperAdmin(permissions.BasePermission):
@@ -8,16 +8,16 @@ class IsSuperAdmin(permissions.BasePermission):
         return (
             request.user
             and request.user.is_authenticated
-            and request.user.role
-            and request.user.role.code == 'SUPERADMIN'
+            and request.user.is_superuser
         )
 
 
-class IsEditionAdmin(permissions.BasePermission):
+class IsCompetitionAdmin(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
-        if request.user.role and request.user.role.code == 'SUPERADMIN':
+        if request.user.is_superuser:
             return True
-        return CompetitionEditionAdmin.objects.filter(
+        return CompetitionAdmin.objects.filter(
             user=request.user,
-            competition_edition=obj.competition_edition,
+            competition=obj.competition,
+            is_active=True,
         ).exists()

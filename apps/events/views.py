@@ -2,8 +2,8 @@ from rest_framework import viewsets
 
 from .models import (
     CompetitionCategory,
-    CompetitionEnabledCategory,
     CompetitionStage,
+    EnabledCompetitionCategory,
     Event,
     EventCompetitor,
     EventResultType,
@@ -12,8 +12,8 @@ from .models import (
 )
 from .serializers import (
     CompetitionCategorySerializer,
-    CompetitionEnabledCategorySerializer,
     CompetitionStageSerializer,
+    EnabledCompetitionCategorySerializer,
     EventCompetitorSerializer,
     EventResultTypeSerializer,
     EventSerializer,
@@ -28,16 +28,16 @@ class CompetitionCategoryViewSet(viewsets.ModelViewSet):
     search_fields = ('name',)
 
 
-class CompetitionEnabledCategoryViewSet(viewsets.ModelViewSet):
-    queryset = CompetitionEnabledCategory.objects.all()
-    serializer_class = CompetitionEnabledCategorySerializer
-    filterset_fields = ('competition_edition',)
+class EnabledCompetitionCategoryViewSet(viewsets.ModelViewSet):
+    queryset = EnabledCompetitionCategory.objects.all()
+    serializer_class = EnabledCompetitionCategorySerializer
+    filterset_fields = ('competition',)
 
 
 class CompetitionStageViewSet(viewsets.ModelViewSet):
     queryset = CompetitionStage.objects.all()
     serializer_class = CompetitionStageSerializer
-    filterset_fields = ('competition_edition', 'stage_type')
+    filterset_fields = ('competition', 'stage_type')
 
 
 class EventResultTypeViewSet(viewsets.ReadOnlyModelViewSet):

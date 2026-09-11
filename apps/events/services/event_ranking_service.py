@@ -41,13 +41,13 @@ class EventRankingService:
 
         ranked = EventRankingService._apply_dense_ranking(parsed_results)
 
-        edition = event.competition_stage.competition_edition
+        competition = event.competition_stage.competition
         scoring_service = ScoringService()
 
         for item in ranked:
             ec = item['event_competitor']
             ec.event_rank = item['rank']
-            ec.score = scoring_service.get_points(edition, item['rank'])
+            ec.score = scoring_service.get_points(competition, item['rank'])
             ec.save()
 
         return ranked

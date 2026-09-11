@@ -6,4 +6,4 @@ from .models import ScoringRule
 class ScoringRuleSerializer(serializers.ModelSerializer):
     class Meta:
         model = ScoringRule
-        fields = ('id', 'competition_edition', 'position', 'points')
+        fields = ('id', 'competition', 'position', 'points')

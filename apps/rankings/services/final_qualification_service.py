@@ -8,26 +8,26 @@ class FinalQualificationService:
     def __init__(self):
         self.ranking_service = CompetitionRankingService()
 
-    def get_qualifiers(self, edition):
+    def get_qualifiers(self, competition):
         """
         Get qualifiers from the Qualifier stage for all categories.
 
         Args:
-            edition: CompetitionEdition instance
+            competition: Competition instance
 
         Returns:
             dict: Qualifiers grouped by category
         """
         try:
             qualifier_stage = CompetitionStage.objects.get(
-                competition_edition=edition,
+                competition=competition,
                 stage_type=CompetitionStage.StageType.QUALIFIER,
             )
         except CompetitionStage.DoesNotExist:
             return {}
 
         ranking = self.ranking_service.calculate_competition_ranking(
-            edition, qualifier_stage,
+            competition, qualifier_stage,
         )
 
         qualifiers = {}

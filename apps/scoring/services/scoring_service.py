@@ -4,12 +4,12 @@ from apps.scoring.models import ScoringRule
 class ScoringService:
     """Convert position to points using ScoringRule."""
 
-    def get_points(self, edition, position):
+    def get_points(self, competition, position):
         """
-        Get points for a given position in an edition.
+        Get points for a given position in a competition.
 
         Args:
-            edition: CompetitionEdition instance
+            competition: Competition instance
             position: Integer position (1-based)
 
         Returns:
@@ -17,7 +17,7 @@ class ScoringService:
         """
         try:
             rule = ScoringRule.objects.get(
-                competition_edition=edition,
+                competition=competition,
                 position=position,
             )
             return rule.points

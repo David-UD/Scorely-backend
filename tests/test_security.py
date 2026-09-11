@@ -1,13 +1,12 @@
 import pytest
 from datetime import timedelta
 from types import SimpleNamespace
-from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from apps.competitions.models import CompetitionEdition
-from apps.users.models import CompetitionEditionAdmin, Role, User
+from apps.competitions.models import Competition
+from apps.users.models import CompetitionAdmin, User
 
 
 @pytest.mark.django_db
@@ -62,41 +61,45 @@ class TestRolePermissions:
         response = client.get('/api/v1/users/')
         assert response.status_code == status.HTTP_200_OK
 
-    def test_edition_admin_assignment(self, user, edition, superadmin):
-        relation = CompetitionEditionAdmin.objects.create(
+    def test_competition_admin_assignment(self, user, competition, superadmin):
+        relation = CompetitionAdmin.objects.create(
             user=user,
-            competition_edition=edition,
+            competition=competition,
         )
         assert relation is not None
 
-    def test_admin_cannot_manage_unassigned_edition(self, user, edition, competition):
-        client = APIClient()
-        client.force_authenticate(user=user)
-
-        other_edition = CompetitionEdition.objects.create(
-            competition=competition,
-            year=2029,
+    def test_admin_cannot_manage_unassigned_competition(
+        self, user, competition, status_competition, competition_type, affiliation, location
+    ):
+        other_competition = Competition.objects.create(
+            name='Other Competition',
+            competition_type=competition_type,
+            status=status_competition,
+            affiliation=affiliation,
+            location=location,
             start_date='2029-07-01',
             end_date='2029-07-03',
-            status=CompetitionEdition.Status.DRAFT,
+            slug='other-competition',
         )
 
-        from apps.users.permissions import IsEditionAdmin
+        from apps.users.permissions import IsCompetitionAdmin
 
         class Dummy:
-            competition_edition = other_edition
+            competition = other_competition
 
-        permission = IsEditionAdmin()
+        permission = IsCompetitionAdmin()
         request = SimpleNamespace(user=user)
         assert permission.has_object_permission(request, None, Dummy()) is False
 
-    def test_superadmin_can_manage_all_editions(self, superadmin, edition):
-        from apps.users.permissions import IsEditionAdmin
+    def test_superadmin_can_manage_all_competitions(self, superadmin, competition):
+        from apps.users.permissions import IsCompetitionAdmin
 
         class Dummy:
-            competition_edition = edition
+            pass
 
-        permission = IsEditionAdmin()
+        Dummy.competition = competition
+
+        permission = IsCompetitionAdmin()
         request = SimpleNamespace(user=superadmin)
         assert permission.has_object_permission(request, None, Dummy()) is True
 

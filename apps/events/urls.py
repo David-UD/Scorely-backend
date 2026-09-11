@@ -3,8 +3,8 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     CompetitionCategoryViewSet,
-    CompetitionEnabledCategoryViewSet,
     CompetitionStageViewSet,
+    EnabledCompetitionCategoryViewSet,
     EventCompetitorViewSet,
     EventResultTypeViewSet,
     EventViewSet,
@@ -14,7 +14,7 @@ from .views import (
 
 router = DefaultRouter()
 router.register('competition-categories', CompetitionCategoryViewSet)
-router.register('competition-enabled-categories', CompetitionEnabledCategoryViewSet)
+router.register('enabled-competition-categories', EnabledCompetitionCategoryViewSet)
 router.register('competition-stages', CompetitionStageViewSet)
 router.register('event-result-types', EventResultTypeViewSet)
 router.register('rank-directions', RankDirectionViewSet)

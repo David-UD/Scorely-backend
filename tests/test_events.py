@@ -14,17 +14,17 @@ class TestCompetitionCategory:
 
 
 @pytest.mark.django_db
-class TestCompetitionEnabledCategory:
+class TestEnabledCompetitionCategory:
     def test_enable_category(self, enabled_category):
-        assert enabled_category.competition_edition is not None
+        assert enabled_category.competition is not None
         assert enabled_category.competition_category.name == 'Individual Male'
 
-    def test_unique_per_edition(self, edition, category, enabled_category):
-        from apps.events.models import CompetitionEnabledCategory
+    def test_unique_per_competition(self, competition, category, enabled_category):
+        from apps.events.models import EnabledCompetitionCategory
 
         with pytest.raises(IntegrityError):
-            CompetitionEnabledCategory.objects.create(
-                competition_edition=edition,
+            EnabledCompetitionCategory.objects.create(
+                competition=competition,
                 competition_category=category,
             )
 
@@ -38,9 +38,9 @@ class TestCompetitionStage:
     def test_create_final(self, stage_final):
         assert stage_final.stage_type == CompetitionStage.StageType.FINAL
 
-    def test_only_one_qualifier_per_edition(self, edition, stage_qualifier):
+    def test_only_one_qualifier_per_competition(self, competition, stage_qualifier):
         second = CompetitionStage(
-            competition_edition=edition,
+            competition=competition,
             stage_type=CompetitionStage.StageType.QUALIFIER,
             qualification_count=3,
             order=3,

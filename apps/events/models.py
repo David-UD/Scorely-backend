@@ -14,9 +14,9 @@ class CompetitionCategory(models.Model):
         return self.name
 
 
-class CompetitionEnabledCategory(models.Model):
-    competition_edition = models.ForeignKey(
-        'competitions.CompetitionEdition',
+class EnabledCompetitionCategory(models.Model):
+    competition = models.ForeignKey(
+        'competitions.Competition',
         on_delete=models.CASCADE,
         related_name='enabled_categories',
     )
@@ -27,11 +27,11 @@ class CompetitionEnabledCategory(models.Model):
     )
 
     class Meta:
-        unique_together = ('competition_edition', 'competition_category')
+        unique_together = ('competition', 'competition_category')
         ordering = ['competition_category']
 
     def __str__(self):
-        return f"{self.competition_edition} - {self.competition_category}"
+        return f"{self.competition} - {self.competition_category}"
 
 
 class CompetitionStage(models.Model):
@@ -39,11 +39,7 @@ class CompetitionStage(models.Model):
         QUALIFIER = 'QUALIFIER', 'Qualifier'
         FINAL = 'FINAL', 'Final'
 
-    competition_edition = models.ForeignKey(
-        'competitions.CompetitionEdition',
-        on_delete=models.CASCADE,
-        related_name='stages',
-    )
+    competition = models.ForeignKey('competitions.Competition', on_delete=models.CASCADE, related_name='stages')
     stage_type = models.CharField(max_length=20, choices=StageType.choices)
     qualification_count = models.PositiveIntegerField(default=0)
     order = models.PositiveIntegerField()
@@ -52,11 +48,11 @@ class CompetitionStage(models.Model):
         ordering = ['order']
 
     def __str__(self):
-        return f"{self.competition_edition} - {self.get_stage_type_display()}"
+        return f"{self.competition} - {self.get_stage_type_display()}"
 
     def clean(self):
         existing = CompetitionStage.objects.filter(
-            competition_edition=self.competition_edition,
+            competition=self.competition,
             stage_type=self.stage_type,
         )
         if self.pk:
@@ -88,14 +84,10 @@ class RankDirection(models.Model):
 
 
 class Event(models.Model):
-    competition_stage = models.ForeignKey(
-        CompetitionStage,
-        on_delete=models.CASCADE,
-        related_name='events',
-    )
-    event_number = models.PositiveIntegerField()
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
+    competition_stage = models.ForeignKey(CompetitionStage, on_delete=models.CASCADE, related_name='events')
+    event_number = models.PositiveIntegerField()
     event_result_type = models.ForeignKey(EventResultType, on_delete=models.PROTECT)
     rank_direction = models.ForeignKey(RankDirection, on_delete=models.PROTECT)
 

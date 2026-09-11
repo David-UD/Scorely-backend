@@ -43,30 +43,21 @@ class TestAPIUsers:
 
 @pytest.mark.django_db
 class TestAPICompetitions:
-    def test_create_competition(self, superadmin, competition_type, affiliation, location):
+    def test_create_competition(self, superadmin, competition_type, status_competition, affiliation, location):
         client = APIClient()
         client.force_authenticate(user=superadmin)
         data = {
             'name': 'New Comp',
             'competition_type': competition_type.id,
+            'status': status_competition.id,
             'affiliation': affiliation.id,
             'location': location.id,
             'description': '',
-        }
-        response = client.post('/api/v1/competitions/', data, format='json')
-        assert response.status_code in (200, 201)
-
-    def test_create_edition(self, superadmin, competition):
-        client = APIClient()
-        client.force_authenticate(user=superadmin)
-        data = {
-            'competition': competition.id,
-            'year': 2027,
             'start_date': '2027-07-01',
             'end_date': '2027-07-03',
-            'status': 'DRAFT',
+            'slug': 'new-comp',
         }
-        response = client.post('/api/v1/competition-editions/', data, format='json')
+        response = client.post('/api/v1/competitions/', data, format='json')
         assert response.status_code in (200, 201)
 
 
@@ -82,12 +73,12 @@ class TestAPIEventCompetitors:
 
 @pytest.mark.django_db
 class TestAPIRankings:
-    def test_qualifier_leaderboard(self, edition):
+    def test_qualifier_leaderboard(self, competition):
         client = APIClient()
-        response = client.get(f'/api/v1/leaderboards/edition/{edition.id}/qualifier/')
+        response = client.get(f'/api/v1/leaderboards/competition/{competition.id}/qualifier/')
         assert response.status_code in (200, 404)
 
-    def test_final_leaderboard(self, edition):
+    def test_final_leaderboard(self, competition):
         client = APIClient()
-        response = client.get(f'/api/v1/leaderboards/edition/{edition.id}/final/')
+        response = client.get(f'/api/v1/leaderboards/competition/{competition.id}/final/')
         assert response.status_code in (200, 404)

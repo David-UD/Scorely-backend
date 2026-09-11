@@ -1,9 +1,8 @@
 import pytest
 from django.db import IntegrityError
 
-from apps.users.models import CompetitionEditionAdmin, User
+from apps.users.models import CompetitionAdmin, User
 from apps.users.serializers import UserCreateSerializer
-from rest_framework.test import APIClient
 
 
 @pytest.mark.django_db
@@ -38,6 +37,7 @@ class TestUserModel:
         )
         assert user.is_staff is True
         assert user.is_superuser is True
+        assert user.is_active is True
 
     def test_create_superuser_requires_staff(self):
         with pytest.raises(ValueError):
@@ -49,32 +49,30 @@ class TestUserModel:
                 is_staff=False,
             )
 
-    def test_role_assignment(self, role_admin):
+    def test_full_name(self):
         user = User.objects.create_user(
-            email='withrole@test.com',
+            email='name@test.com',
             password='password123',
             first_name='Ana',
             last_name='Lopez',
-            role=role_admin,
         )
-        assert user.role == role_admin
-        assert user.role.code == 'ADMIN'
+        assert user.full_name == 'Ana Lopez'
 
 
 @pytest.mark.django_db
-class TestCompetitionEditionAdminModel:
-    def test_create(self, user, edition):
-        relation = CompetitionEditionAdmin.objects.create(
+class TestCompetitionAdminModel:
+    def test_create(self, user, competition):
+        relation = CompetitionAdmin.objects.create(
             user=user,
-            competition_edition=edition,
+            competition=competition,
         )
         assert relation.user == user
-        assert relation.competition_edition == edition
+        assert relation.competition == competition
 
-    def test_unique_together(self, user, edition):
-        CompetitionEditionAdmin.objects.create(user=user, competition_edition=edition)
+    def test_unique_together(self, user, competition):
+        CompetitionAdmin.objects.create(user=user, competition=competition)
         with pytest.raises(IntegrityError):
-            CompetitionEditionAdmin.objects.create(user=user, competition_edition=edition)
+            CompetitionAdmin.objects.create(user=user, competition=competition)
 
 
 @pytest.mark.django_db

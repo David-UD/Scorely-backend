@@ -2,8 +2,8 @@ from django.contrib import admin
 
 from .models import (
     CompetitionCategory,
-    CompetitionEnabledCategory,
     CompetitionStage,
+    EnabledCompetitionCategory,
     Event,
     EventCompetitor,
     EventResultType,
@@ -18,19 +18,19 @@ class CompetitionCategoryAdmin(admin.ModelAdmin):
     search_fields = ('name',)
 
 
-@admin.register(CompetitionEnabledCategory)
-class CompetitionEnabledCategoryAdmin(admin.ModelAdmin):
-    list_display = ('competition_edition', 'competition_category')
-    search_fields = ('competition_edition__competition__name', 'competition_category__name')
-    autocomplete_fields = ('competition_edition', 'competition_category')
+@admin.register(EnabledCompetitionCategory)
+class EnabledCompetitionCategoryAdmin(admin.ModelAdmin):
+    list_display = ('competition', 'competition_category')
+    search_fields = ('competition__name', 'competition_category__name')
+    autocomplete_fields = ('competition', 'competition_category')
 
 
 @admin.register(CompetitionStage)
 class CompetitionStageAdmin(admin.ModelAdmin):
-    list_display = ('competition_edition', 'stage_type', 'qualification_count', 'order')
+    list_display = ('competition', 'stage_type', 'qualification_count', 'order')
     list_filter = ('stage_type',)
-    search_fields = ('competition_edition__competition__name',)
-    autocomplete_fields = ('competition_edition',)
+    search_fields = ('competition__name',)
+    autocomplete_fields = ('competition',)
 
 
 @admin.register(EventResultType)

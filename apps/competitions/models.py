@@ -1,5 +1,5 @@
 from django.db import models
-
+from django.core.exceptions import ValidationError
 
 class CompetitionType(models.Model):
     code = models.CharField(max_length=20, unique=True)
@@ -9,7 +9,7 @@ class CompetitionType(models.Model):
         ordering = ['code']
 
     def __str__(self):
-        return self.code
+        return self.name
 
 
 class Affiliation(models.Model):
@@ -41,14 +41,10 @@ class Location(models.Model):
 
     def __str__(self):
         return self.name
-
-
-class Competition(models.Model):
-    competition_type = models.ForeignKey(CompetitionType, on_delete=models.PROTECT)
-    affiliation = models.ForeignKey(Affiliation, on_delete=models.PROTECT)
-    location = models.ForeignKey(Location, on_delete=models.PROTECT)
-    name = models.CharField(max_length=200)
-    description = models.TextField(blank=True)
+    
+class StatusCompetition(models.Model):
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=20, unique=True)
 
     class Meta:
         ordering = ['name']
@@ -57,22 +53,31 @@ class Competition(models.Model):
         return self.name
 
 
-class CompetitionEdition(models.Model):
-    class Status(models.TextChoices):
-        DRAFT = 'DRAFT', 'Draft'
-        PUBLISHED = 'PUBLISHED', 'Published'
-        FINISHED = 'FINISHED', 'Finished'
-        CANCELLED = 'CANCELLED', 'Cancelled'
-
-    competition = models.ForeignKey(Competition, on_delete=models.CASCADE, related_name='editions')
-    year = models.PositiveIntegerField()
+class Competition(models.Model):
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    competition_type = models.ForeignKey(CompetitionType, on_delete=models.PROTECT, related_name="competitions")
+    status = models.ForeignKey(StatusCompetition, on_delete=models.PROTECT, related_name="competitions")
+    affiliation = models.ForeignKey(Affiliation, on_delete=models.PROTECT, related_name="competitions")
+    location = models.ForeignKey(Location, on_delete=models.PROTECT, related_name="competitions")
+    year = models.PositiveIntegerField(editable=False)
     start_date = models.DateField()
-    end_date = models.DateField()
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    end_date = models.DateField(null=True, blank=True)
+    slug = models.SlugField(unique=True)
+    
+    def clean(self):
+        if self.end_date and self.end_date < self.start_date:
+            raise ValidationError({
+                "end_date": "La fecha de fin no puede ser anterior a la fecha de inicio."
+            })
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        self.year = self.start_date.year
+        super().save(*args, **kwargs)
 
     class Meta:
-        unique_together = ('competition', 'year')
-        ordering = ['-year']
+        ordering = ["-start_date", "name"]
 
     def __str__(self):
-        return f"{self.competition.name} {self.year}"
+        return self.name

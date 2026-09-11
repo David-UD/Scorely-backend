@@ -4,14 +4,14 @@ Backend para la gestión y publicación de resultados de competiciones deportiva
 
 Construido con **Django 4.2 LTS + Django REST Framework + PostgreSQL**, empaquetado con **Docker Compose**.
 
-## Functionalidad principal
+## Funcionalidad principal
 
-- Gestión de competiciones y sus ediciones anuales.
+- Gestión de competiciones (año, fechas y estado).
 - Registro de participantes individuales y equipos.
-- Configuración de categorías por edición.
+- Configuración de categorías por competición.
 - Registro de resultados por evento (WOD).
 - Cálculo automático de rankings y tabulación.
-- Tablas de puntuación configurables por edición.
+- Tablas de puntuación configurables por competición.
 - Publicación de leaderboards públicos.
 - Fases Qualifier y Final con clasificación independiente.
 
@@ -21,9 +21,9 @@ Construido con **Django 4.2 LTS + Django REST Framework + PostgreSQL**, empaquet
 scorely/
 ├── config/                 # Configuración del proyecto (settings, urls, wsgi, asgi)
 ├── apps/
-│   ├── users/              # Usuarios, roles, permisos por edición
-│   ├── competitions/       # Competiciones y ediciones anuales
-│   ├── participants/       # Personas, equipos, competidores
+│   ├── users/              # Usuarios y administradores por competición
+│   ├── competitions/       # Competiciones, tipos, sedes, estados
+│   ├── participants/       # Atletas, equipos, competidores
 │   ├── events/             # Eventos (WODs), categorías, resultados
 │   ├── scoring/            # Tablas de puntuación
 │   └── rankings/           # Leaderboards y servicios de clasificación
@@ -106,6 +106,9 @@ python manage.py makemigrations --settings=config.settings.development
 python manage.py migrate --settings=config.settings.development
 python manage.py createsuperuser --settings=config.settings.development
 
+# (Opcional) Cargar datos de ejemplo
+python manage.py seed_data --settings=config.settings.development
+
 # Servidor de desarrollo
 python manage.py runserver --settings=config.settings.development
 ```
@@ -152,27 +155,25 @@ Base URL: `http://localhost:8000/api/v1/`
 |---------|----------|
 | Autenticación | `POST /auth/token/`, `POST /auth/token/refresh/` |
 | Usuarios | `GET/POST /users/`, `GET /users/<id>/` |
-| Roles | `GET/POST /roles/` |
-| Admins de edición | `GET/POST /edition-admins/` |
+| Admins de competición | `GET/POST /competition-admins/` |
 | Tipos de competición | `GET/POST /competition-types/` |
 | Afiliaciones | `GET/POST /affiliations/` |
 | Sedes | `GET/POST /locations/` |
 | Competiciones | `GET/POST /competitions/` |
-| Ediciones | `GET/POST /competition-editions/` |
 | Categorías | `GET/POST /competition-categories/` |
-| Categorías habilitadas | `GET/POST /competition-enabled-categories/` |
+| Categorías habilitadas | `GET/POST /enabled-competition-categories/` |
 | Fases (stage) | `GET/POST /competition-stages/` |
 | Eventos (WODs) | `GET/POST /events/` |
 | Tipos de resultado | `GET/POST /event-result-types/` |
 | Dirección de ranking | `GET/POST /rank-directions/` |
 | Resultados por evento | `GET/POST /event-competitors/` |
 | Estados de resultado | `GET/POST /status-event-competitors/` |
-| Personas | `GET/POST /persons/` |
+| Atletas | `GET/POST /athletes/` |
 | Equipos | `GET/POST /teams/` |
 | Miembros de equipo | `GET/POST /team-members/` |
 | Competidores | `GET/POST /competitors/` |
 | Reglas de puntuación | `GET/POST /scoring-rules/` |
-| Leaderboard público | `GET /leaderboards/edition/<id>/qualifier/`, `GET /leaderboards/edition/<id>/final/` |
+| Leaderboard público | `GET /leaderboards/competition/<id>/qualifier/`, `GET /leaderboards/competition/<id>/final/` |
 
 Autenticación con header: `Authorization: Bearer <access_token>`. Los leaderboards son públicos (`AllowAny`).
 
@@ -194,18 +195,17 @@ La API se documenta sola con `drf-spectacular` a partir de los serializers y vie
 
 ```
 Competition
-  └─▶ CompetitionEdition
-        └─▶ CompetitionStage (QUALIFIER | FINAL)
-              └─▶ Event (WOD)
-                    └─▶ EventCompetitor  (result + event_rank + score)
-                          └─▶ Final Score
-                                └─▶ Leaderboard
+  └─▶ CompetitionStage (QUALIFIER | FINAL)
+        └─▶ Event (WOD)
+              └─▶ EventCompetitor  (result + event_rank + score)
+                    └─▶ Final Score
+                          └─▶ Leaderboard
 ```
 
 ### Participantes
 
 ```
-Person ─────────┐
+Athlete ────────┐
                 ▼
            Competitor         ← la máquina de puntuación SIEMPRE trabaja con Competitor
                 ▲
@@ -215,25 +215,25 @@ Person ─────────┐
           TeamMember
 ```
 
-> Un `Competitor` puede ser `INDIVIDUAL` (usa `person`) o `TEAM` (usa `team`), nunca ambos.
+> Un `Competitor` puede ser `INDIVIDUAL` (usa `athlete`) o `TEAM` (usa `team`), nunca ambos.
 
 ### Reglas de negocio clave
 
-- `UNIQUE(Competition, year)` en ediciones.
-- Exactamente **una** fase `QUALIFIER` y **una** fase `FINAL` por edición.
+- `Slug` único en `Competition`; el año se deriva de `start_date`.
+- Exactamente **una** fase `QUALIFIER` y **una** fase `FINAL` por competición.
 - `UNIQUE(competition_stage, event_number)` en Event.
 - `UNIQUE(competitor, event)` en EventCompetitor.
-- `UNIQUE(competition_edition, competition_category)` en categorías habilitadas.
-- Cada edición define su propia tabla de puntuación (`ScoringRule`).
+- `UNIQUE(competition, competition_category)` en categorías habilitadas.
+- Cada competición define su propia tabla de puntuación (`ScoringRule`).
 
 ### Modelos principales
 
 | App | Modelos |
 |-----|---------|
-| users | `User`, `Role`, `CompetitionEditionAdmin` |
-| competitions | `CompetitionType`, `Affiliation`, `Location`, `Competition`, `CompetitionEdition` |
-| participants | `Person`, `Team`, `TeamMember`, `Competitor` |
-| events | `CompetitionCategory`, `CompetitionEnabledCategory`, `CompetitionStage`, `Event`, `EventResultType`, `RankDirection`, `EventCompetitor`, `StatusEventCompetitor` |
+| users | `User`, `CompetitionAdmin` |
+| competitions | `CompetitionType`, `Affiliation`, `Location`, `StatusCompetition`, `Competition` |
+| participants | `Athlete`, `Team`, `TeamMember`, `Competitor` |
+| events | `CompetitionCategory`, `EnabledCompetitionCategory`, `CompetitionStage`, `Event`, `EventResultType`, `RankDirection`, `EventCompetitor`, `StatusEventCompetitor` |
 | scoring | `ScoringRule` |
 
 ## Sistema de puntuación (escore)
@@ -250,7 +250,7 @@ Resultado → Posición (rank) → Puntos WOD (ScoringRule) → Puntaje Final �
 
 1. El resultado crudo se interpreta con `ResultParser` según el tipo de evento.
 2. `EventRankingService` ordena según `rank_direction` y asigna posiciones (ranking deportivo/denso).
-3. `ScoringService` convierte la posición en puntos usando la tabla de la edición (`ScoringRule`).
+3. `ScoringService` convierte la posición en puntos usando la tabla de la competición (`ScoringRule`).
 4. `CompetitionRankingService` suma los puntos de todos los eventos válidos → Puntaje Final y clasificación general por categoría.
 5. `FinalQualificationService` determina quiénes avanzan del Qualifier al Final.
 
@@ -280,9 +280,9 @@ Resultado → Posición (rank) → Puntos WOD (ScoringRule) → Puntaje Final �
 | Max Snatch | WEIGHT | DESC |
 | HYROX Race | TIME | ASC |
 
-### Tabla de puntos por edición (ScoringRule)
+### Tabla de puntos por competición (ScoringRule)
 
-Cada edición define su propia tabla. **Nunca asumir una fórmula fija.**
+Cada competición define su propia tabla. **Nunca asumir una fórmula fija.**
 
 Ejemplo A:
 
@@ -352,4 +352,5 @@ Ejemplo trabajado:
 
 - `python manage.py check` → sin errores.
 - `python manage.py spectacular --validate` → schema OpenAPI válido.
-- Suite de tests: **78 passed** (pytest-django, `--nomigrations`).
+- `python manage.py makemigrations --check` → sin migraciones pendientes.
+- Suite de tests: **81 passed** (pytest-django, `--settings=config.settings.development`).

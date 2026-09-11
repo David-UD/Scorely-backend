@@ -1,14 +1,14 @@
 import pytest
-from django.db import IntegrityError
+from django.core.exceptions import ValidationError
 
-from apps.competitions.models import CompetitionEdition
+from apps.competitions.models import Competition, StatusCompetition
 
 
 @pytest.mark.django_db
 class TestCompetitionModels:
     def test_create_competition_type(self, competition_type):
         assert competition_type.code == 'CROSSFIT'
-        assert str(competition_type) == 'CROSSFIT'
+        assert str(competition_type) == 'CrossFit'
 
     def test_create_affiliation(self, affiliation):
         assert affiliation.name == 'Mamba CrossFit Studio'
@@ -23,34 +23,51 @@ class TestCompetitionModels:
         assert competition.competition_type.code == 'CROSSFIT'
         assert str(competition) == 'TJ Summer Games'
 
-    def test_create_edition(self, edition):
-        assert edition.year == 2028
-        assert edition.status == CompetitionEdition.Status.PUBLISHED
-        assert str(edition) == 'TJ Summer Games 2028'
+    def test_year_derived_from_start_date(self, competition):
+        assert competition.year == 2028
 
 
 @pytest.mark.django_db
-class TestCompetitionEditionConstraints:
-    def test_unique_competition_year(self, competition, edition):
-        with pytest.raises(IntegrityError):
-            CompetitionEdition.objects.create(
-                competition=competition,
-                year=2028,
+class TestCompetitionConstraints:
+    def test_unique_slug(self, competition, status_competition, competition_type, affiliation, location):
+        with pytest.raises(ValidationError):
+            Competition.objects.create(
+                name='Another Summer Games',
+                competition_type=competition_type,
+                status=status_competition,
+                affiliation=affiliation,
+                location=location,
                 start_date='2028-07-01',
                 end_date='2028-07-03',
+                slug='tj-summer-games',
             )
 
-    def test_different_year_allowed(self, competition):
-        edition2 = CompetitionEdition.objects.create(
-            competition=competition,
-            year=2029,
-            start_date='2029-07-01',
-            end_date='2029-07-03',
-        )
-        assert edition2.year == 2029
+    def test_end_date_before_start_date_raises(
+        self, status_competition, competition_type, affiliation, location
+    ):
+        with pytest.raises(ValidationError):
+            Competition.objects.create(
+                name='Bad Dates Comp',
+                competition_type=competition_type,
+                status=status_competition,
+                affiliation=affiliation,
+                location=location,
+                start_date='2028-07-03',
+                end_date='2028-07-01',
+                slug='bad-dates-comp',
+            )
 
-    def test_status_transition(self, edition):
-        edition.status = CompetitionEdition.Status.FINISHED
-        edition.save()
-        edition.refresh_from_db()
-        assert edition.status == CompetitionEdition.Status.FINISHED
+    def test_different_slug_allowed(
+        self, status_competition, competition_type, affiliation, location
+    ):
+        competition2 = Competition.objects.create(
+            name='TJ Winter Games',
+            competition_type=competition_type,
+            status=status_competition,
+            affiliation=affiliation,
+            location=location,
+            start_date='2029-01-15',
+            end_date='2029-01-17',
+            slug='tj-winter-games',
+        )
+        assert competition2.year == 2029

@@ -1,35 +1,33 @@
 from collections import defaultdict
 
-from apps.events.models import EventCompetitor
+from apps.events.models import EnabledCompetitionCategory, EventCompetitor
 from apps.participants.models import Competitor
 
 
 class CompetitionRankingService:
     """Calculate Final Score and overall competition ranking."""
 
-    def calculate_competition_ranking(self, edition, stage):
+    def calculate_competition_ranking(self, competition, stage):
         """
-        Calculate the competition ranking for a specific edition and stage.
+        Calculate the competition ranking for a specific competition and stage.
 
         Args:
-            edition: CompetitionEdition instance
+            competition: Competition instance
             stage: CompetitionStage instance
 
         Returns:
             dict: Ranking data grouped by category
         """
-        from apps.events.models import CompetitionEnabledCategory
-
-        enabled_categories = CompetitionEnabledCategory.objects.filter(
-            competition_edition=edition,
+        enabled_categories = EnabledCompetitionCategory.objects.filter(
+            competition=competition,
         )
 
         results = {}
 
         for enabled_category in enabled_categories:
             competitors = Competitor.objects.filter(
-                competition_edition=edition,
-                competition_enabled_category=enabled_category,
+                competition=competition,
+                enabled_competition_category=enabled_category,
             )
 
             competitor_scores = []

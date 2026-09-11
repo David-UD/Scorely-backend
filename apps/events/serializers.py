@@ -2,8 +2,8 @@ from rest_framework import serializers
 
 from .models import (
     CompetitionCategory,
-    CompetitionEnabledCategory,
     CompetitionStage,
+    EnabledCompetitionCategory,
     Event,
     EventCompetitor,
     EventResultType,
@@ -18,16 +18,16 @@ class CompetitionCategorySerializer(serializers.ModelSerializer):
         fields = ('id', 'name', 'min_members', 'max_members')
 
 
-class CompetitionEnabledCategorySerializer(serializers.ModelSerializer):
+class EnabledCompetitionCategorySerializer(serializers.ModelSerializer):
     class Meta:
-        model = CompetitionEnabledCategory
-        fields = ('id', 'competition_edition', 'competition_category')
+        model = EnabledCompetitionCategory
+        fields = ('id', 'competition', 'competition_category')
 
 
 class CompetitionStageSerializer(serializers.ModelSerializer):
     class Meta:
         model = CompetitionStage
-        fields = ('id', 'competition_edition', 'stage_type', 'qualification_count', 'order')
+        fields = ('id', 'competition', 'stage_type', 'qualification_count', 'order')
 
 
 class EventResultTypeSerializer(serializers.ModelSerializer):
