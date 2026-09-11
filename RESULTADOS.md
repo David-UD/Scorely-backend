@@ -2,8 +2,8 @@
 
 Ejecución completa del PLAN.md para la construcción del backend de **Scorely** (Django REST Framework + PostgreSQL + Docker).
 
-**Fecha:** 09/09/2026 (última actualización: 11/09/2026 — iteración "Public GETs")
-**Estado global:** ✅ Completo — 14/14 fases + iteración seed + iteración "Public GETs".
+**Fecha:** 09/09/2026 (última actualización: 11/09/2026 — iteraciones "Public GETs" y "Refactor modelo events")
+**Estado global:** ✅ Completo — 14/14 fases + iteración seed + iteración "Public GETs" + iteración "Refactor modelo events".
 
 ---
 
@@ -11,8 +11,8 @@ Ejecución completa del PLAN.md para la construcción del backend de **Scorely**
 
 El plan se ejecutó en su totalidad. La base del proyecto está operativa:
 
-- **14 de 14 fases completadas + iteración seed + iteración "Public GETs".**
-- **92/92 tests pasando** contra PostgreSQL 15 real (Docker).
+- **14 de 14 fases completadas + iteración seed + iteración "Public GETs" + iteración "Refactor modelo events".**
+- **90/90 tests pasando** contra PostgreSQL 15 real (Docker).
 - `manage.py check` y `manage.py spectacular --validate` sin errores ni warnings.
 - Imagen Docker `scorely-web` construida correctamente.
 - PostgreSQL 15 healthy en contenedor.
@@ -39,7 +39,7 @@ Pendiente por parte del usuario (por su solicitud): **ejecutar las migraciones y
 | Users | `User` (custom, email login), `CompetitionAdmin` |
 | Competitions | `CompetitionType`, `Affiliation`, `Location`, `Competition`, `StatusCompetition` |
 | Participants | `Athlete`, `Team`, `TeamMember`, `Competitor` (individual/team) |
-| Events | `CompetitionCategory`, `EnabledCompetitionCategory`, `CompetitionStage`, `Event`, `EventResultType`, `RankDirection`, `StatusEventCompetitor`, `EventCompetitor` |
+| Events | `CompetitionCategory`, `EnabledCompetitionCategory`, `CompetitionStage`, `Event`, `EventCompetitor` |
 | Scoring | `ScoringRule` (tabla de puntos por posición y competición) |
 
 ### Servicios de Negocio
@@ -47,7 +47,7 @@ Pendiente por parte del usuario (por su solicitud): **ejecutar las migraciones y
 | Servicio | Responsabilidad |
 |----------|-----------------|
 | `ResultParser` | Parsea resultados TIME / REPS / WEIGHT / DISTANCE / POINTS |
-| `EventRankingService` | Ranking denso por evento según rank_direction |
+| `EventRankingService` | Ranking denso por evento según `Event.is_ascending` |
 | `ScoringService` | Puntos por posición según ScoringRule |
 | `CompetitionRankingService` | Clasificación general por edición + desempates |
 | `FinalQualificationService` | Selección de top-N para la fase final |
@@ -97,7 +97,7 @@ Idempotente: ejecutar 2 veces produce exactamente los mismos conteos.
 |--------------|-----------|
 | `manage.py check` | ✅ 0 issues |
 | `manage.py spectacular --validate` | ✅ Limpio |
-| Suite de tests (pytest) | ✅ 92/92 passed |
+| Suite de tests (pytest) | ✅ 90/90 passed |
 | `docker compose config` | ✅ Válido |
 | `docker build -t scorely-web .` | ✅ OK |
 
@@ -136,6 +136,41 @@ Idempotente: ejecutar 2 veces produce exactamente los mismos conteos.
 | 13 | Resultado "21:15" para evento tipo DISTANCE en seed_data | Cambiado a "5000"/"4850" (metros) — `RankDirection.DESC` |
 | 14 | Test `test_seed.py` esperaba 16 personas | Corregido a 19 (7 CF-A + 8 CF-B + 4 HY) |
 | 15 | `ScoringRule` importado desde módulo incorrecto en test_seed | Corregido a `apps.scoring.models` |
+| 16 | Refactor modelo events del usuario (elimina `EventResultType`, `RankDirection`, `StatusEventCompetitor`) | Propagado a serializers, views, urls, admin, services, seed, fixtures y tests: `Event` con `workout`/`is_ascending`/`is_active`; `ResultParser` autodetecta tiempo vs numérico; ranking usa `Event.is_ascending`; `EventCompetitor` sin `status`; `EnabledCompetitionCategory.ordering` devuelto a `Meta` |
+
+---
+
+## Iteración "Refactor modelo events" (11/09/2026)
+
+Cambio estructural en `apps/events/models.py` (hecho por el usuario): se eliminan `EventResultType`, `RankDirection` y `StatusEventCompetitor`; `Event` pasa a `workout` (TextField), `is_ascending`, `is_active`; `EventCompetitor` pierde `status`.
+
+### Semántica de ranking adoptada
+
+- `ResultParser.parse(result)`: si el resultado contiene `:` → se parsea como tiempo (`MM:SS`/`HH:MM:SS` → segundos); si no → numérico.
+- `EventRankingService`: `reverse_sort = not event.is_ascending` (True → menor es mejor; False → mayor es mejor). Ya no filtra `status__code='VALID'`.
+- `CompetitionRankingService`: ya no filtra `status__code='VALID'`.
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|---------|--------|
+| `apps/events/models.py` | (usuario) 3 modelos borrados; `Event` y `EventCompetitor` redefinidos; `ordering` de `EnabledCompetitionCategory` corregido a `Meta` |
+| `apps/events/serializers.py` | Borrados 3 serializers; `EventSerializer` con `workout`/`is_ascending`/`is_active`; `EventCompetitorSerializer` sin `status` |
+| `apps/events/views.py` | Borrados 3 viewsets read-only; `EventCompetitorViewSet.filterset_fields` sin `status` |
+| `apps/events/urls.py` | Borradas rutas `event-result-types`, `rank-directions`, `status-event-competitors` |
+| `apps/events/admin.py` | Borrados 3 admins; `EventAdmin`/`EventCompetitorAdmin` con campos nuevos |
+| `apps/events/services/result_parser.py` | `parse(result)` con autodetección tiempo vs numérico |
+| `apps/events/services/event_ranking_service.py` | Sin filtro de status; `reverse_sort = not event.is_ascending` |
+| `apps/rankings/services/competition_ranking_service.py` | Sin filtro de status |
+| `apps/users/management/commands/seed_data.py` | Sin catálogos de los 3 modelos; eventos con `workout`/`is_ascending`; `EventCompetitor` sin `status` |
+| `tests/conftest.py` | Fixture `event` con `workout`/`is_ascending`; `event_desc` nuevo; borrados fixtures/imports de los 3 modelos |
+| `tests/test_events.py` | `TestEventResultTypes` eliminado; tests adaptados |
+| `tests/test_api.py` | Payload de `test_event_create_requires_auth` con `workout`/`is_ascending` |
+| `tests/test_rankings.py` | `ResultParser.parse` sin tipo; sin `status`; `test_disqualified_not_ranked` eliminado; eventos con `workout`/`is_ascending` |
+| `README.md`, `PROMPT.md` | Modelos, endpoints, sección de escore actualizados |
+| `docs/db_modelo.svg` | Diagrama actualizado al modelo nuevo |
+
+**Nota (usuario):** se generó la **migración pendiente** (ver "Despliegue / Pasos Siguientes").
 
 ---
 
@@ -171,6 +206,15 @@ Idempotente: ejecutar 2 veces produce exactamente los mismos conteos.
    ```
 
 > Nota: si se ejecutan las migraciones desde el host, `.env` debe mantener `DB_HOST=localhost`. En Docker, `DB_HOST=db` se fuerza vía `environment`.
+
+4. **Migración pendiente del refactor de events (11/09/2026)** — ejecutarla manualmente:
+
+   ```bash
+   .venv\Scripts\python.exe manage.py makemigrations events
+   .venv\Scripts\python.exe manage.py migrate
+   ```
+
+   Cambios detectados: añade `workout`/`is_ascending`/`is_active` a `Event`, elimina `event_result_type`/`rank_direction`, elimina `status` de `EventCompetitor`, borra los modelos `EventResultType`, `RankDirection` y `StatusEventCompetitor`, y migra los `unique_together` a `UniqueConstraint`.
 
 ---
 

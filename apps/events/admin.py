@@ -6,9 +6,6 @@ from .models import (
     EnabledCompetitionCategory,
     Event,
     EventCompetitor,
-    EventResultType,
-    RankDirection,
-    StatusEventCompetitor,
 )
 
 
@@ -33,34 +30,16 @@ class CompetitionStageAdmin(admin.ModelAdmin):
     autocomplete_fields = ('competition',)
 
 
-@admin.register(EventResultType)
-class EventResultTypeAdmin(admin.ModelAdmin):
-    list_display = ('code', 'name')
-    search_fields = ('code', 'name')
-
-
-@admin.register(RankDirection)
-class RankDirectionAdmin(admin.ModelAdmin):
-    list_display = ('code', 'name')
-    search_fields = ('code', 'name')
-
-
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
-    list_display = ('name', 'event_number', 'competition_stage', 'event_result_type', 'rank_direction')
-    list_filter = ('event_result_type', 'rank_direction')
-    search_fields = ('name',)
-    autocomplete_fields = ('competition_stage', 'event_result_type', 'rank_direction')
-
-
-@admin.register(StatusEventCompetitor)
-class StatusEventCompetitorAdmin(admin.ModelAdmin):
-    list_display = ('code', 'name')
-    search_fields = ('code', 'name')
+    list_display = ('name', 'event_number', 'competition_stage', 'is_ascending', 'is_active')
+    list_filter = ('is_ascending', 'is_active')
+    search_fields = ('name', 'workout')
+    autocomplete_fields = ('competition_stage',)
 
 
 @admin.register(EventCompetitor)
 class EventCompetitorAdmin(admin.ModelAdmin):
-    list_display = ('competitor', 'event', 'result', 'event_rank', 'score', 'status')
-    list_filter = ('status', 'event')
-    autocomplete_fields = ('competitor', 'event', 'status')
+    list_display = ('competitor', 'event', 'result', 'event_rank', 'score')
+    list_filter = ('event',)
+    autocomplete_fields = ('competitor', 'event')

@@ -164,10 +164,7 @@ Base URL: `http://localhost:8000/api/v1/`
 | Categorías habilitadas | `GET/POST /enabled-competition-categories/` |
 | Fases (stage) | `GET/POST /competition-stages/` |
 | Eventos (WODs) | `GET/POST /events/` |
-| Tipos de resultado | `GET/POST /event-result-types/` |
-| Dirección de ranking | `GET/POST /rank-directions/` |
 | Resultados por evento | `GET/POST /event-competitors/` |
-| Estados de resultado | `GET/POST /status-event-competitors/` |
 | Atletas | `GET/POST /athletes/` |
 | Equipos | `GET/POST /teams/` |
 | Miembros de equipo | `GET/POST /team-members/` |
@@ -233,7 +230,7 @@ Athlete ────────┐
 | users | `User`, `CompetitionAdmin` |
 | competitions | `CompetitionType`, `Affiliation`, `Location`, `StatusCompetition`, `Competition` |
 | participants | `Athlete`, `Team`, `TeamMember`, `Competitor` |
-| events | `CompetitionCategory`, `EnabledCompetitionCategory`, `CompetitionStage`, `Event`, `EventResultType`, `RankDirection`, `EventCompetitor`, `StatusEventCompetitor` |
+| events | `CompetitionCategory`, `EnabledCompetitionCategory`, `CompetitionStage`, `Event`, `EventCompetitor` |
 | scoring | `ScoringRule` |
 
 ## Sistema de puntuación (escore)
@@ -248,37 +245,28 @@ Resultado → Posición (rank) → Puntos WOD (ScoringRule) → Puntaje Final �
 
 ### Flujo
 
-1. El resultado crudo se interpreta con `ResultParser` según el tipo de evento.
-2. `EventRankingService` ordena según `rank_direction` y asigna posiciones (ranking deportivo/denso).
+1. El resultado crudo se interpreta con `ResultParser`: si contiene `:` es tiempo (`MM:SS` o `HH:MM:SS`) y se convierte a segundos; si no, es numérico.
+2. `EventRankingService` ordena según `Event.is_ascending` (True → menor es mejor, False → mayor es mejor) y asigna posiciones (ranking deportivo/denso).
 3. `ScoringService` convierte la posición en puntos usando la tabla de la competición (`ScoringRule`).
-4. `CompetitionRankingService` suma los puntos de todos los eventos válidos → Puntaje Final y clasificación general por categoría.
+4. `CompetitionRankingService` suma los puntos de los eventos del stage → Puntaje Final y clasificación general por categoría.
 5. `FinalQualificationService` determina quiénes avanzan del Qualifier al Final.
 
-### Tipos de resultado
+### Orden del evento (`is_ascending`)
 
-| Código | Descripción |
-|--------|-------------|
-| `TIME` | Duración (menor es mejor) |
-| `REPS` | Repeticiones (mayor es mejor) |
-| `WEIGHT` | Peso levantado (mayor es mejor) |
-| `DISTANCE` | Distancia recorrida (mayor es mejor) |
-| `POINTS` | Puntos obtenidos (mayor es mejor) |
-
-### Dirección de ranking
-
-| Código | Regla |
-|--------|-------|
-| `ASC` | Valores menores rankean primero |
-| `DESC` | Valores mayores rankean primero |
+| Valor | Regla |
+|-------|-------|
+| `True` | Menores valores rankean primero (tiempos, p. ej. `04:36`) |
+| `False` | Mayores valores rankean primero (reps / peso / distancia, p. ej. `315`) |
 
 ### Ejemplos de eventos
 
-| Evento | Tipo | Dirección |
-|--------|------|-----------|
-| Fran | TIME | ASC |
-| AMRAP | REPS | DESC |
-| Max Snatch | WEIGHT | DESC |
-| HYROX Race | TIME | ASC |
+| Evento | Resultado | `is_ascending` |
+|--------|-----------|----------------|
+| Fran | `04:36` (tiempo) | True |
+| AMRAP | `315` (reps) | False |
+| Max Snatch | `105.0` (kg) | False |
+| Run 5K | `5000` (metros) | False |
+| HYROX Race | `01:12:30` (tiempo) | True |
 
 ### Tabla de puntos por competición (ScoringRule)
 

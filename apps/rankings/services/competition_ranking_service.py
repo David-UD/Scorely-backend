@@ -36,7 +36,6 @@ class CompetitionRankingService:
                 event_competitors = EventCompetitor.objects.filter(
                     competitor=competitor,
                     event__competition_stage=stage,
-                    status__code='VALID',
                 )
 
                 final_score = sum(ec.score or 0 for ec in event_competitors)

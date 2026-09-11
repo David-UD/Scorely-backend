@@ -452,3 +452,41 @@ Apertura de endpoints de lectura (GET) al público sin autenticación, según Pa
 ### Migraciones
 
 Ninguna (no hubo cambios de modelo). No hay pasos manuales de migración para esta iteración.
+
+---
+
+## Iteración "Refactor modelo events" — 11/09/2026 — Completa
+
+El usuario modificó `apps/events/models.py`: eliminó `EventResultType`, `RankDirection` y `StatusEventCompetitor`; `Event` pasa a `workout` (TextField), `is_ascending` (BooleanField) e `is_active`; `EventCompetitor` pierde `status`. Se propagó el cambio a todo el código sin generar migraciones (las maneja el usuario).
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|---------|--------|
+| `apps/events/models.py` | (usuario) 3 modelos borrados; `Event`/`EventCompetitor` redefinidos; fix: `ordering` de `EnabledCompetitionCategory` devuelto a `Meta` |
+| `apps/events/serializers.py` | Borrados 3 serializers; `EventSerializer` con `workout`/`is_ascending`/`is_active`; `EventCompetitorSerializer` sin `status` |
+| `apps/events/views.py` | Borrados los 3 ReadOnlyModelViewSet; `EventCompetitorViewSet.filterset_fields = ('event', 'competitor')` |
+| `apps/events/urls.py` | Borradas rutas `event-result-types`, `rank-directions`, `status-event-competitors` |
+| `apps/events/admin.py` | Borrados 3 admins; `EventAdmin` (list_filter `is_ascending`/`is_active`, search `name`/`workout`) y `EventCompetitorAdmin` sin `status` |
+| `apps/events/services/result_parser.py` | `parse(result_string)`: `':'` → tiempo (`MM:SS`/`HH:MM:SS` → segundos); si no → `float` |
+| `apps/events/services/event_ranking_service.py` | Sin filtro de status; `reverse_sort = not event.is_ascending` (True → menor es mejor) |
+| `apps/rankings/services/competition_ranking_service.py` | Eliminado `status__code='VALID'` |
+| `apps/users/management/commands/seed_data.py` | Sin catálogos de los 3 modelos; `create_event(..., workout, is_ascending)`; `EventCompetitor` sin `status` |
+| `tests/conftest.py` | `event` con `workout`/`is_ascending=True`; nuevo `event_desc` (`is_ascending=False`); borrados fixtures de los 3 modelos |
+| `tests/test_events.py` | `TestEventResultTypes` eliminado (3 tests) |
+| `tests/test_api.py` | Payload de `test_event_create_requires_auth` con `workout`/`is_ascending` |
+| `tests/test_rankings.py` | `ResultParser.parse` sin tipo; sin `status`; `test_disqualified_not_ranked` eliminado |
+| `README.md` / `PROMPT.md` / `RESULTADOS.md` / `docs/db_modelo.svg` | Documentación y diagrama al modelo nuevo |
+
+### Verificaciones
+
+| Verificación | Resultado |
+|--------------|-----------|
+| `manage.py check` | ✅ 0 issues |
+| `manage.py spectacular --validate` | ✅ OK |
+| `manage.py makemigrations --check` | ⚠️ Detecta migración pendiente (NO creada, la genera el usuario) |
+| `pytest tests/` | ✅ **90/90 passed** (92 previos − 3 del catálogo ERT − 1 de disqualified) |
+
+### Migraciones
+
+**Pendiente (usuario):** `.venv\Scripts\python.exe manage.py makemigrations events` + `migrate`. Cambios: Add `workout`/`is_ascending`/`is_active`; Remove `event_result_type`/`rank_direction`/`status`; Delete `EventResultType`/`RankDirection`/`StatusEventCompetitor`; `unique_together` → `UniqueConstraint`.

@@ -12,9 +12,6 @@ from apps.events.models import (
     CompetitionStage,
     EnabledCompetitionCategory,
     Event,
-    EventResultType,
-    RankDirection,
-    StatusEventCompetitor,
 )
 from apps.participants.models import Athlete, Competitor, Team, TeamMember
 from apps.scoring.models import ScoringRule
@@ -144,54 +141,25 @@ def stage_final(db, competition):
 
 
 @pytest.fixture
-def event_result_type_time(db):
-    return EventResultType.objects.create(code='TIME', name='Time')
-
-
-@pytest.fixture
-def event_result_type_reps(db):
-    return EventResultType.objects.create(code='REPS', name='Reps')
-
-
-@pytest.fixture
-def event_result_type_weight(db):
-    return EventResultType.objects.create(code='WEIGHT', name='Weight')
-
-
-@pytest.fixture
-def rank_direction_asc(db):
-    return RankDirection.objects.create(code='ASC', name='Ascending')
-
-
-@pytest.fixture
-def rank_direction_desc(db):
-    return RankDirection.objects.create(code='DESC', name='Descending')
-
-
-@pytest.fixture
-def event(db, stage_qualifier, event_result_type_time, rank_direction_asc):
+def event(db, stage_qualifier):
     return Event.objects.create(
         competition_stage=stage_qualifier,
         event_number=1,
         name='WOD 1',
-        event_result_type=event_result_type_time,
-        rank_direction=rank_direction_asc,
+        workout='21-15-9: Thrusters + Pull-ups',
+        is_ascending=True,
     )
 
 
 @pytest.fixture
-def status_valid(db):
-    return StatusEventCompetitor.objects.create(code='VALID', name='Valid')
-
-
-@pytest.fixture
-def status_pending(db):
-    return StatusEventCompetitor.objects.create(code='PENDING', name='Pending')
-
-
-@pytest.fixture
-def status_disqualified(db):
-    return StatusEventCompetitor.objects.create(code='DISQUALIFIED', name='Disqualified')
+def event_desc(db, stage_qualifier):
+    return Event.objects.create(
+        competition_stage=stage_qualifier,
+        event_number=2,
+        name='AMRAP 12 min',
+        workout='AMRAP 12 min: Burpees, Box Jump, KB Swing',
+        is_ascending=False,
+    )
 
 
 @pytest.fixture

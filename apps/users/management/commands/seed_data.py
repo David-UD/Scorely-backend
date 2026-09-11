@@ -16,9 +16,6 @@ from apps.events.models import (
     EnabledCompetitionCategory,
     Event,
     EventCompetitor,
-    EventResultType,
-    RankDirection,
-    StatusEventCompetitor,
 )
 from apps.events.services.event_ranking_service import EventRankingService
 from apps.participants.models import Athlete, Competitor, Team, TeamMember
@@ -33,9 +30,6 @@ class Command(BaseCommand):
 
         self._seed_competition_statuses()
         self._seed_competition_types()
-        self._seed_event_result_types()
-        self._seed_rank_directions()
-        self._seed_event_competitor_statuses()
         self._seed_categories()
 
         self._seed_affiliations()
@@ -71,40 +65,6 @@ class Command(BaseCommand):
             obj, created = CompetitionType.objects.get_or_create(code=code, defaults={'name': name})
             status = 'created' if created else 'exists'
             self.stdout.write(f'  CompetitionType {code} {status}')
-
-    def _seed_event_result_types(self):
-        types = [
-            ('TIME', 'Time'),
-            ('REPS', 'Reps'),
-            ('WEIGHT', 'Weight'),
-            ('DISTANCE', 'Distance'),
-            ('POINTS', 'Points'),
-        ]
-        for code, name in types:
-            obj, created = EventResultType.objects.get_or_create(code=code, defaults={'name': name})
-            status = 'created' if created else 'exists'
-            self.stdout.write(f'  EventResultType {code} {status}')
-
-    def _seed_rank_directions(self):
-        directions = [
-            ('ASC', 'Ascending'),
-            ('DESC', 'Descending'),
-        ]
-        for code, name in directions:
-            obj, created = RankDirection.objects.get_or_create(code=code, defaults={'name': name})
-            status = 'created' if created else 'exists'
-            self.stdout.write(f'  RankDirection {code} {status}')
-
-    def _seed_event_competitor_statuses(self):
-        statuses = [
-            ('PENDING', 'Pending'),
-            ('VALID', 'Valid'),
-            ('DISQUALIFIED', 'Disqualified'),
-        ]
-        for code, name in statuses:
-            obj, created = StatusEventCompetitor.objects.get_or_create(code=code, defaults={'name': name})
-            status = 'created' if created else 'exists'
-            self.stdout.write(f'  StatusEventCompetitor {code} {status}')
 
     def _seed_categories(self):
         categories = [
@@ -308,13 +268,6 @@ class Command(BaseCommand):
                 self.stdout.write(f'  EnabledCompetitionCategory {competition} - {category_name} {status}')
 
     def _seed_stages_and_events(self):
-        time_type = EventResultType.objects.get(code='TIME')
-        reps_type = EventResultType.objects.get(code='REPS')
-        weight_type = EventResultType.objects.get(code='WEIGHT')
-        distance_type = EventResultType.objects.get(code='DISTANCE')
-        asc = RankDirection.objects.get(code='ASC')
-        desc = RankDirection.objects.get(code='DESC')
-
         self._events = {}
 
         def create_stage(competition, stage_type, order, qualification_count):
@@ -327,14 +280,14 @@ class Command(BaseCommand):
             self.stdout.write(f'  CompetitionStage {competition} - {stage_type} {status}')
             return stage
 
-        def create_event(stage, event_number, name, result_type, direction):
+        def create_event(stage, event_number, name, workout, is_ascending):
             event, created = Event.objects.get_or_create(
                 competition_stage=stage,
                 event_number=event_number,
                 defaults={
                     'name': name,
-                    'event_result_type': result_type,
-                    'rank_direction': direction,
+                    'workout': workout,
+                    'is_ascending': is_ascending,
                 },
             )
             status = 'created' if created else 'exists'
@@ -347,24 +300,24 @@ class Command(BaseCommand):
         cf_a_qual = create_stage(self._competitions['cf_a'], CompetitionStage.StageType.QUALIFIER, 1, 2)
         cf_a_fin = create_stage(self._competitions['cf_a'], CompetitionStage.StageType.FINAL, 2, 0)
         self._events['cf_a']['qualifier'] = [
-            create_event(cf_a_qual, 1, 'Fran', time_type, asc),
-            create_event(cf_a_qual, 2, 'AMRAP 12 min', reps_type, desc),
-            create_event(cf_a_qual, 3, 'Max Snatch', weight_type, desc),
+            create_event(cf_a_qual, 1, 'Fran', '21-15-9: Thrusters (43kg) + Pull-ups', True),
+            create_event(cf_a_qual, 2, 'AMRAP 12 min', 'AMRAP 12 min: 10 Burpees, 10 Box Jump, 10 KB Swing', False),
+            create_event(cf_a_qual, 3, 'Max Snatch', '1RM Snatch — peso máximo en 10 min', False),
         ]
         self._events['cf_a']['final'] = [
-            create_event(cf_a_fin, 1, 'WOD Final', time_type, asc),
+            create_event(cf_a_fin, 1, 'WOD Final', 'Evento final por tiempo', True),
         ]
 
         cf_b_qual = create_stage(self._competitions['cf_b'], CompetitionStage.StageType.QUALIFIER, 1, 2)
         cf_b_fin = create_stage(self._competitions['cf_b'], CompetitionStage.StageType.FINAL, 2, 0)
         self._events['cf_b']['qualifier'] = [
-            create_event(cf_b_qual, 1, 'Fran', time_type, asc),
-            create_event(cf_b_qual, 2, 'AMRAP 12 min', reps_type, desc),
-            create_event(cf_b_qual, 3, 'Max Snatch', weight_type, desc),
-            create_event(cf_b_qual, 4, 'Run 5K', distance_type, desc),
+            create_event(cf_b_qual, 1, 'Fran', '21-15-9: Thrusters (43kg) + Pull-ups', True),
+            create_event(cf_b_qual, 2, 'AMRAP 12 min', 'AMRAP 12 min: 10 Burpees, 10 Box Jump, 10 KB Swing', False),
+            create_event(cf_b_qual, 3, 'Max Snatch', '1RM Snatch — peso máximo en 10 min', False),
+            create_event(cf_b_qual, 4, 'Run 5K', 'Carrera 5000m en pista', False),
         ]
         self._events['cf_b']['final'] = [
-            create_event(cf_b_fin, 1, 'WOD Final', time_type, asc),
+            create_event(cf_b_fin, 1, 'WOD Final', 'Evento final por tiempo', True),
         ]
 
         self._events['hy_a'] = {}
@@ -373,10 +326,10 @@ class Command(BaseCommand):
         hy_a_qual = create_stage(self._competitions['hy_a'], CompetitionStage.StageType.QUALIFIER, 1, 0)
         hy_b_qual = create_stage(self._competitions['hy_b'], CompetitionStage.StageType.QUALIFIER, 1, 0)
         self._events['hy_a']['qualifier'] = [
-            create_event(hy_a_qual, 1, 'HYROX Race', time_type, asc),
+            create_event(hy_a_qual, 1, 'HYROX Race', 'Carrera HYROX por tiempo', True),
         ]
         self._events['hy_b']['qualifier'] = [
-            create_event(hy_b_qual, 1, 'HYROX Race', time_type, asc),
+            create_event(hy_b_qual, 1, 'HYROX Race', 'Carrera HYROX por tiempo', True),
         ]
 
     def _seed_scoring_rules(self):
@@ -503,8 +456,6 @@ class Command(BaseCommand):
         create_individual('hy_b', 'RX Individual', 'Nora', 'Barna2', 'DEMO-HYB-002')
 
     def _seed_results(self):
-        status_valid = StatusEventCompetitor.objects.get(code='VALID')
-
         results_by_competitor = {
             'DEMO-CFA-001': {
                 'Fran': '04:36',
@@ -576,7 +527,7 @@ class Command(BaseCommand):
                     obj, created = EventCompetitor.objects.update_or_create(
                         competitor=competitor,
                         event=event,
-                        defaults={'result': result, 'status': status_valid},
+                        defaults={'result': result},
                     )
                     if created:
                         created_count += 1

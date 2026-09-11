@@ -19,24 +19,20 @@ class EventRankingService:
         """
         competitors = EventCompetitor.objects.filter(
             event=event,
-            status__code='VALID',
         )
 
         if not competitors.exists():
             return []
 
-        result_type_code = event.event_result_type.code
-        rank_direction = event.rank_direction.code
-
         parsed_results = []
         for ec in competitors:
-            parsed_value = ResultParser.parse(ec.result, result_type_code)
+            parsed_value = ResultParser.parse(ec.result)
             parsed_results.append({
                 'event_competitor': ec,
                 'parsed_value': parsed_value,
             })
 
-        reverse_sort = (rank_direction == 'DESC')
+        reverse_sort = not event.is_ascending
         parsed_results.sort(key=lambda x: x['parsed_value'], reverse=reverse_sort)
 
         ranked = EventRankingService._apply_dense_ranking(parsed_results)

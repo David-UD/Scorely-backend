@@ -11,22 +11,22 @@ from apps.rankings.services.final_qualification_service import FinalQualificatio
 @pytest.mark.django_db
 class TestResultParser:
     def test_parse_time(self):
-        assert ResultParser.parse('04:36', 'TIME') == 276
+        assert ResultParser.parse('04:36') == 276
 
     def test_parse_time_with_hours(self):
-        assert ResultParser.parse('01:04:36', 'TIME') == 3876
+        assert ResultParser.parse('01:04:36') == 3876
 
     def test_parse_reps(self):
-        assert ResultParser.parse('150', 'REPS') == 150
+        assert ResultParser.parse('150') == 150
 
     def test_parse_weight(self):
-        assert ResultParser.parse('125.5', 'WEIGHT') == 125.5
+        assert ResultParser.parse('125.5') == 125.5
 
     def test_parse_distance(self):
-        assert ResultParser.parse('1000', 'DISTANCE') == 1000.0
+        assert ResultParser.parse('1000') == 1000.0
 
     def test_parse_points(self):
-        assert ResultParser.parse('50', 'POINTS') == 50
+        assert ResultParser.parse('50') == 50
 
 
 @pytest.mark.django_db
@@ -49,7 +49,7 @@ class TestRealEventRanking:
             competitors.append(c)
         return competitors
 
-    def test_event_ranking_asc_time(self, event, status_valid, competition, enabled_category):
+    def test_event_ranking_asc_time(self, event, competition, enabled_category):
         competitors = self._make_competitors(competition, enabled_category, 4)
 
         results_map = {
@@ -63,7 +63,6 @@ class TestRealEventRanking:
                 competitor=comp,
                 event=event,
                 result=result,
-                status=status_valid,
             )
 
         EventRankingService.calculate_event_ranking(event)
@@ -78,7 +77,7 @@ class TestRealEventRanking:
         assert ranks['C001'] == 3  # 05:00
         assert ranks['C004'] == 4  # 06:00
 
-    def test_dense_ranking_ties(self, event, status_valid, competition, enabled_category, scoring_rules):
+    def test_dense_ranking_ties(self, event, competition, enabled_category, scoring_rules):
         competitors = self._make_competitors(competition, enabled_category, 4)
 
         results_map = {
@@ -92,7 +91,6 @@ class TestRealEventRanking:
                 competitor=comp,
                 event=event,
                 result=result,
-                status=status_valid,
             )
 
         EventRankingService.calculate_event_ranking(event)
@@ -110,28 +108,6 @@ class TestRealEventRanking:
         assert ranks['C003'][1] == 94
         assert ranks['C004'][0] == 4    # 06:00 → 4th (skips 3rd)
         assert ranks['C004'][1] == 82
-
-    def test_disqualified_not_ranked(self, event, status_valid, status_disqualified, competition, enabled_category):
-        competitors = self._make_competitors(competition, enabled_category, 2)
-
-        EventCompetitor.objects.create(
-            competitor=competitors[0],
-            event=event,
-            result='03:00',
-            status=status_valid,
-        )
-        EventCompetitor.objects.create(
-            competitor=competitors[1],
-            event=event,
-            result='02:00',
-            status=status_disqualified,
-        )
-
-        EventRankingService.calculate_event_ranking(event)
-
-        ranked = EventCompetitor.objects.filter(event=event, event_rank__isnull=False)
-        assert ranked.count() == 1
-        assert ranked[0].competitor == competitors[0]
 
 
 @pytest.mark.django_db
@@ -154,7 +130,7 @@ class TestCompetitionRankingService:
             competitors.append(c)
         return competitors
 
-    def test_final_score_sum(self, event, status_valid, competition, enabled_category, scoring_rules):
+    def test_final_score_sum(self, event, competition, enabled_category, scoring_rules):
         competitors = self._make_competitors(competition, enabled_category, 2)
 
         events = [event]
@@ -163,8 +139,8 @@ class TestCompetitionRankingService:
                 competition_stage=event.competition_stage,
                 event_number=i,
                 name=f'WOD {i}',
-                event_result_type=event.event_result_type,
-                rank_direction=event.rank_direction,
+                workout=event.workout,
+                is_ascending=event.is_ascending,
             ))
 
         # Competitor 1: positions 2,1,2,1,1 → 94+100+94+100+100 = 488
@@ -177,13 +153,11 @@ class TestCompetitionRankingService:
                 competitor=competitors[0],
                 event=ec_event,
                 result=results_c1[idx],
-                status=status_valid,
             )
             EventCompetitor.objects.create(
                 competitor=competitors[1],
                 event=ec_event,
                 result=results_c2[idx],
-                status=status_valid,
             )
 
         for ec_event in events:
@@ -199,7 +173,7 @@ class TestCompetitionRankingService:
         assert entry[0]['event_scores'] == [94, 100, 94, 100, 100]
         assert entry[1]['event_scores'] == [100, 94, 100, 94, 94]
 
-    def test_tie_breaking_places(self, event, status_valid, competition, enabled_category, scoring_rules):
+    def test_tie_breaking_places(self, event, competition, enabled_category, scoring_rules):
         # Both get 476, competitor 1 has 2 wins vs competitor 2 with 2 wins → tie maintained
         events = [event]
         for i in range(2, 6):
@@ -207,8 +181,8 @@ class TestCompetitionRankingService:
                 competition_stage=event.competition_stage,
                 event_number=i,
                 name=f'WOD {i}',
-                event_result_type=event.event_result_type,
-                rank_direction=event.rank_direction,
+                workout=event.workout,
+                is_ascending=event.is_ascending,
             ))
 
         results_c1 = ['03:00', '03:00', '04:00', '04:00', '05:00']  # 1,1,2,2,3 → 100+100+94+94+88 = 476
@@ -237,7 +211,6 @@ class TestCompetitionRankingService:
                     competitor=comp,
                     event=ec_event,
                     result=all_results[ci][idx],
-                    status=status_valid,
                 )
 
         for ec_event in events:
@@ -254,7 +227,7 @@ class TestCompetitionRankingService:
 
 @pytest.mark.django_db
 class TestFinalQualificationService:
-    def test_qualifier_top_n(self, event, status_valid, competition, enabled_category, scoring_rules):
+    def test_qualifier_top_n(self, event, competition, enabled_category, scoring_rules):
         competitors = []
         for i in range(8):
             a = Athlete.objects.create(first_name=f'A{i}', last_name='Lopez', gender='M')
@@ -274,7 +247,6 @@ class TestFinalQualificationService:
                 competitor=comp,
                 event=event,
                 result=t,
-                status=status_valid,
             )
 
         EventRankingService.calculate_event_ranking(event)

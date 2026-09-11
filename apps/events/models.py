@@ -27,7 +27,12 @@ class EnabledCompetitionCategory(models.Model):
     )
 
     class Meta:
-        unique_together = ('competition', 'competition_category')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['competition', 'competition_category'],
+                name='unique_enabled_category_per_competition',
+            ),
+        ]
         ordering = ['competition_category']
 
     def __str__(self):
@@ -61,53 +66,26 @@ class CompetitionStage(models.Model):
             raise ValidationError(f"Only one {self.stage_type} stage allowed per edition.")
 
 
-class EventResultType(models.Model):
-    code = models.CharField(max_length=20, unique=True)
-    name = models.CharField(max_length=50)
-
-    class Meta:
-        ordering = ['code']
-
-    def __str__(self):
-        return self.code
-
-
-class RankDirection(models.Model):
-    code = models.CharField(max_length=10, unique=True)
-    name = models.CharField(max_length=50)
-
-    class Meta:
-        ordering = ['code']
-
-    def __str__(self):
-        return self.code
-
-
 class Event(models.Model):
     name = models.CharField(max_length=200)
+    workout = models.TextField()
     description = models.TextField(blank=True)
     competition_stage = models.ForeignKey(CompetitionStage, on_delete=models.CASCADE, related_name='events')
     event_number = models.PositiveIntegerField()
-    event_result_type = models.ForeignKey(EventResultType, on_delete=models.PROTECT)
-    rank_direction = models.ForeignKey(RankDirection, on_delete=models.PROTECT)
-
+    is_ascending = models.BooleanField(default=False, help_text="Indica si el resultado se ordena de menor a mayor.")
+    is_active = models.BooleanField(default=True)
+    
     class Meta:
-        unique_together = ('competition_stage', 'event_number')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['competition_stage', 'event_number'],
+                name='unique_event_number_per_stage',
+            ),
+        ]
         ordering = ['event_number']
-
+    
     def __str__(self):
         return f"{self.name} (#{self.event_number})"
-
-
-class StatusEventCompetitor(models.Model):
-    code = models.CharField(max_length=20, unique=True)
-    name = models.CharField(max_length=50)
-
-    class Meta:
-        ordering = ['code']
-
-    def __str__(self):
-        return self.code
 
 
 class EventCompetitor(models.Model):
@@ -124,10 +102,14 @@ class EventCompetitor(models.Model):
     result = models.CharField(max_length=50)
     event_rank = models.PositiveIntegerField(null=True, blank=True)
     score = models.IntegerField(null=True, blank=True)
-    status = models.ForeignKey(StatusEventCompetitor, on_delete=models.PROTECT)
 
     class Meta:
-        unique_together = ('competitor', 'event')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['competitor', 'event'],
+                name='unique_competitor_per_event',
+            ),
+        ]
         ordering = ['event', 'event_rank']
 
     def __str__(self):

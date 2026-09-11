@@ -1,14 +1,17 @@
 class ResultParser:
-    """Interpret raw results based on event result type."""
+    """Interpret raw results into a numeric value.
+
+    Results without a colon are numeric (REPS / WEIGHT / DISTANCE / POINTS).
+    Results containing a colon are treated as time (MM:SS or HH:MM:SS).
+    """
 
     @staticmethod
-    def parse(result_string, result_type_code):
+    def parse(result_string):
         """
         Parse a raw result string into a numeric value.
 
         Args:
             result_string: The raw result (e.g., "04:36", "150", "125.5")
-            result_type_code: The type code (TIME, REPS, WEIGHT, DISTANCE, POINTS)
 
         Returns:
             float: The parsed numeric value
@@ -18,18 +21,10 @@ class ResultParser:
 
         result_string = str(result_string).strip()
 
-        if result_type_code == 'TIME':
+        if ':' in result_string:
             return ResultParser._parse_time(result_string)
-        elif result_type_code == 'REPS':
-            return float(int(result_string))
-        elif result_type_code == 'WEIGHT':
-            return float(result_string)
-        elif result_type_code == 'DISTANCE':
-            return float(result_string)
-        elif result_type_code == 'POINTS':
-            return float(int(result_string))
-        else:
-            return float(result_string)
+
+        return float(result_string)
 
     @staticmethod
     def _parse_time(time_string):

@@ -6,9 +6,6 @@ from .models import (
     EnabledCompetitionCategory,
     Event,
     EventCompetitor,
-    EventResultType,
-    RankDirection,
-    StatusEventCompetitor,
 )
 
 
@@ -30,32 +27,14 @@ class CompetitionStageSerializer(serializers.ModelSerializer):
         fields = ('id', 'competition', 'stage_type', 'qualification_count', 'order')
 
 
-class EventResultTypeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = EventResultType
-        fields = ('id', 'code', 'name')
-
-
-class RankDirectionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = RankDirection
-        fields = ('id', 'code', 'name')
-
-
 class EventSerializer(serializers.ModelSerializer):
     class Meta:
         model = Event
-        fields = ('id', 'competition_stage', 'event_number', 'name', 'description', 'event_result_type', 'rank_direction')
-
-
-class StatusEventCompetitorSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = StatusEventCompetitor
-        fields = ('id', 'code', 'name')
+        fields = ('id', 'competition_stage', 'event_number', 'name', 'workout', 'description', 'is_ascending', 'is_active')
 
 
 class EventCompetitorSerializer(serializers.ModelSerializer):
     class Meta:
         model = EventCompetitor
-        fields = ('id', 'competitor', 'event', 'result', 'event_rank', 'score', 'status')
+        fields = ('id', 'competitor', 'event', 'result', 'event_rank', 'score')
         read_only_fields = ('event_rank', 'score')

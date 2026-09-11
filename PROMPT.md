@@ -36,7 +36,7 @@ Scorely/
 │   ├── users/              # User, CompetitionAdmin, permisos, seed_data
 │   ├── competitions/       # CompetitionType, Affiliation, Location, StatusCompetition, Competition
 │   ├── participants/       # Athlete, Team, TeamMember, Competitor
-│   ├── events/             # CompetitionCategory, EnabledCompetitionCategory, CompetitionStage, Event, EventResultType, RankDirection, EventCompetitor, StatusEventCompetitor
+│   ├── events/             # CompetitionCategory, EnabledCompetitionCategory, CompetitionStage, Event (workout/is_ascending/is_active), EventCompetitor
 │   ├── scoring/            # ScoringRule, ScoringService
 │   └── rankings/           # Leaderboard, ranking services
 ├── tests/                  # Suite de pytest
@@ -154,7 +154,7 @@ Hoy el backend solo expone `leaderboards` con `AllowAny`; `competitions`, `compe
 
 **Excluye (NO tocar):**
 - No modificar modelos, serializers, services ni la lógica de ranking/puntuación.
-- No abrir la lectura de catálogos que la UI pública no consume: `users`, `auth`, `competition-admins`, `affiliations`, `locations`, `competition-types`, `competition-categories`, `enabled-competition-categories`, `event-result-types`, `rank-directions`, `status-event-competitors`, `athletes`, `teams`, `team-members`, `competitors`, `event-competitors`, `scoring-rules`.
+- No abrir la lectura de catálogos que la UI pública no consume: `users`, `auth`, `competition-admins`, `affiliations`, `locations`, `competition-types`, `competition-categories`, `enabled-competition-categories`, `athletes`, `teams`, `team-members`, `competitors`, `event-competitors`, `scoring-rules`.
 - No ejecutar `makemigrations`/`migrate` (no hay cambios de modelo).
 - No cambiar `LeaderboardViewSet` (ya público).
 
@@ -244,7 +244,7 @@ Checklist verificable al terminar:
 - **Backward-compatible:** el cambio solo relaja lectura; no rompe contratos existentes.
 - Origen de la necesidad: `PROMPT-frontend.md` — vistas públicas `/` (recientes + todas) y detalle (info general, mapa, afiliación, fechas, WODs y leaderboards) sin login.
 - No abrir de más: si una vista pública futura necesitara otros catálogos (p. ej. `competition-categories` o `enabled-competition-categories` para filtros de leaderboard), abrirlos en una iteración aparte con su test.
-- `EventResultTypeViewSet`, `RankDirectionViewSet` y `StatusEventCompetitorViewSet` ya son `ReadOnlyModelViewSet` pero aún con `IsAuthenticated` por defecto: no se tocan en esta iteración a menos que la UI los requiera.
+- El modelo de eventos ya no tiene `EventResultType`/`RankDirection`/`StatusEventCompetitor` (refactor del usuario): `Event` usa `workout`, `is_ascending` (True → menor es mejor / tiempo; False → mayor es mejor / numérico) e `is_active`; `EventCompetitor` no tiene `status`. Si una vista futura necesitara catálogos de resultado/dirección/estado, reintroducir el modelo o el campo en una iteración aparte.
 - Cuidado con la doble fuente de permisos: si se añade `DEFAULT_PERMISSION_CLASSES` global distinta, revisar que no contradiga los `permission_classes` por ViewSet.
 
 ---

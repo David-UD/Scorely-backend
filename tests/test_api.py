@@ -173,14 +173,14 @@ class TestAPIPublicReadOnly:
         assert response.status_code == 200
         assert len(response.data['results']) == 1
 
-    def test_event_create_requires_auth(self, stage_qualifier, event_result_type_time, rank_direction_asc):
+    def test_event_create_requires_auth(self, stage_qualifier):
         client = APIClient()
         data = {
             'competition_stage': stage_qualifier.id,
             'event_number': 99,
             'name': 'WOD Intruder',
-            'event_result_type': event_result_type_time.id,
-            'rank_direction': rank_direction_asc.id,
+            'workout': 'Proto de intruso',
+            'is_ascending': True,
         }
         response = client.post('/api/v1/events/', data, format='json')
         assert response.status_code == 401
