@@ -9,7 +9,6 @@ from apps.competitions.models import (
 )
 from apps.events.models import (
     CompetitionCategory,
-    CompetitionStage,
     EnabledCompetitionCategory,
     Event,
 )
@@ -109,6 +108,7 @@ def enabled_category(db, competition, category):
     return EnabledCompetitionCategory.objects.create(
         competition=competition,
         competition_category=category,
+        finalist_slots=5,
     )
 
 
@@ -121,29 +121,10 @@ def enabled_team_category(db, competition, team_category):
 
 
 @pytest.fixture
-def stage_qualifier(db, competition):
-    return CompetitionStage.objects.create(
-        competition=competition,
-        stage_type=CompetitionStage.StageType.QUALIFIER,
-        qualification_count=5,
-        order=1,
-    )
-
-
-@pytest.fixture
-def stage_final(db, competition):
-    return CompetitionStage.objects.create(
-        competition=competition,
-        stage_type=CompetitionStage.StageType.FINAL,
-        qualification_count=0,
-        order=2,
-    )
-
-
-@pytest.fixture
-def event(db, stage_qualifier):
+def event(db, competition):
     return Event.objects.create(
-        competition_stage=stage_qualifier,
+        competition=competition,
+        phase=Event.Phase.QUALIFIER,
         event_number=1,
         name='WOD 1',
         workout='21-15-9: Thrusters + Pull-ups',
@@ -152,9 +133,10 @@ def event(db, stage_qualifier):
 
 
 @pytest.fixture
-def event_desc(db, stage_qualifier):
+def event_desc(db, competition):
     return Event.objects.create(
-        competition_stage=stage_qualifier,
+        competition=competition,
+        phase=Event.Phase.QUALIFIER,
         event_number=2,
         name='AMRAP 12 min',
         workout='AMRAP 12 min: Burpees, Box Jump, KB Swing',

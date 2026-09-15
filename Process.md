@@ -11,6 +11,8 @@ Seguimiento en tiempo real de la ejecución del PLAN.md.
 | Build | 0–14 | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
 | Seed Update | 0–14 | ✅ COMPLETADA | 09/09/2026 | 09/09/2026 |
 | Public GETs | 0–7 | ✅ COMPLETADA | 11/09/2026 | 11/09/2026 |
+| Event results | 0–8 | ✅ COMPLETADA | 15/09/2026 | 15/09/2026 |
+| Final global leaderboard | 1–4 | ✅ COMPLETADA | 15/09/2026 | 15/09/2026 |
 
 ---
 
@@ -490,3 +492,92 @@ El usuario modificó `apps/events/models.py`: eliminó `EventResultType`, `RankD
 ### Migraciones
 
 **Pendiente (usuario):** `.venv\Scripts\python.exe manage.py makemigrations events` + `migrate`. Cambios: Add `workout`/`is_ascending`/`is_active`; Remove `event_result_type`/`rank_direction`/`status`; Delete `EventResultType`/`RankDirection`/`StatusEventCompetitor`; `unique_together` → `UniqueConstraint`.
+
+---
+
+## Iteración "Refactor CompetitionStage → Event.competition + phase" — 12/09/2026 — Completa
+
+El usuario eliminó el modelo `CompetitionStage` y pidió completar el refactor por la **opción 1** (sin generar migraciones). `Event` pasa a tener FK directo `competition` + campo `phase` (`QUALIFIER`/`FINAL`) + `UniqueConstraint(competition, event_number)`; se elimina la ruta `competition-stages`; `Competition.finalist_slots` se usa en lugar de `qualification_count`.
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|---------|--------|
+| `apps/events/models.py` | (usuario) `CompetitionStage` eliminado; `Event.competition` FK + `Event.phase` + constraint `unique_event_number_per_competition`; `Competition.finalist_slots` |
+| `apps/events/serializers.py` | `EventSerializer` con `competition`/`phase`; sin `CompetitionStageSerializer` |
+| `apps/events/views.py` | `EventViewSet` con filterset `competition`/`phase`; eliminado `CompetitionStageViewSet`; `create()` valida `competition_id` |
+| `apps/events/urls.py` | Eliminada ruta `competition-stages` |
+| `apps/events/admin.py` | Sin admin de `CompetitionStage`; `EventAdmin` con `competition`/`phase` |
+| `apps/rankings/services/competition_ranking_service.py` | Firma `(competition, phase)`; filtro `event__competition` + `event__phase`; construye y propaga `event_results` |
+| `apps/rankings/views.py` | Acciones `qualifier`/`final` usan `Event.Phase.*`; sin `StageType` |
+| `apps/rankings/serializers.py` | `EventResultSerializer` + campo `event_results` en `LeaderboardEntrySerializer` |
+| `apps/rankings/services/final_qualification_service.py` | Usa `competition.finalist_slots` + `Event.Phase.QUALIFIER` |
+| `apps/events/services/event_ranking_service.py` | `competition = event.competition` (antes `event.competition_stage.competition`) |
+| `apps/users/permissions.py` | `resolve_competition` sin fallback a `competition_stage` |
+| `apps/users/management/commands/seed_data.py` | Eventos con `competition`+`phase`+`event_number` renumerados (FINAL cf_a→4, cf_b→5); `finalist_slots` cf_a=2, cf_b=2, hy_a=0, hy_b=0; quitar `CompetitionStage` |
+| `apps/competitions/serializers.py` | `finalist_slots` en `CompetitionSerializer` y `CompetitionWriteSerializer` |
+| `tests/*` | `conftest.py`, `test_events.py`, `test_api.py`, `test_permissions.py`, `test_rankings.py`, `test_seed.py` adaptados al nuevo modelo + tests de `event_results` |
+| `PROMPT.md` | Añadida Parte II-bis "Exponer `event_results` en el leaderboard de rankings" |
+
+### Verificaciones
+
+| Verificación | Resultado |
+|--------------|-----------|
+| `manage.py check` | ✅ 0 issues |
+| `manage.py spectacular --validate` | ✅ OK (schema con `EventResult` y `event_results`) |
+| `manage.py makemigrations --check` | ⚠️ Detecta migración pendiente (NO creada, la genera el usuario) |
+| `pytest tests/` | ✅ **113/113 passed** (92 previos + refactor + tests de `event_results`) |
+
+### Migraciones
+
+**Pendiente (usuario):**
+- `python manage.py makemigrations events competitions` — Remove `CompetitionStage`/`competition_stage`/`unique_event_number_per_stage`; Add `Event.competition`/`Event.phase`/`unique_event_number_per_competition`; Add `Competition.finalist_slots`.
+- `python manage.py migrate`
+
+---
+
+## Iteración "Final global leaderboard" (15/09/2026) — Completa
+
+El usuario aprobó el plan: `/final/` se convierte en la vista global (qualifier+final combinados); competidores no clasificados aparecen con `null` ("—") en los WODs finales; `seed_data` crea registros en eventos FINAL solo para los top `finalist_slots` por categoría.
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|---------|--------|
+| `apps/rankings/services/competition_ranking_service.py` | Nuevo `calculate_overall_ranking(competition)`: recorre todos los eventos de la competición (cualquier phase), emite nulls para eventos sin registros, `final_score = sum(score or 0)`, propaga `event_results` |
+| `apps/rankings/views.py` | `final()` usa `calculate_overall_ranking` (sin check de eventos FINAL); `qualifier()` valida existencia de eventos QUALIFIER; helper `_render(request, ranking)` |
+| `apps/rankings/serializers.py` | `EventResultSerializer` con `allow_null=True` en `result`/`event_rank`/`score`; `event_ranks`/`event_scores` con child `allow_null=True` |
+| `apps/users/management/commands/seed_data.py` | `handle()` → `_seed_results()` (solo qualifier vía `_qualifier_events_for`) → `_compute_event_rankings(QUALIFIER)` → `_seed_final_results()` (calcula ranking qualifier y crea EventCompetitor solo para clasificados) → `_compute_event_rankings(FINAL)`. `_events_for` renombrado a `_qualifier_events_for`. **Ajuste demo:** se añade Daniel (`DEMO-CFA-006`) como 3º de "Principiantes Individual" (cf_a) con los peores tiempos del qualifier → no clasifica; se eliminan las claves `WOD Final` (sin uso) de `_seed_results()` |
+| `apps/users/views.py` | Fix preexistente: `CurrentUserView` con `serializer_class = UserSerializer` para limpiar `spectacular --validate` |
+| `tests/test_rankings.py` | 3 nuevos tests en `TestCompetitionRankingService`: `test_overall_ranking_combines_phases`, `test_overall_ranking_missing_records_are_null`, `test_overall_ranking_without_final_events` |
+| `tests/test_api.py` | 2 nuevos tests: `test_final_leaderboard_is_global_with_nulls`, `test_final_leaderboard_computes_global_total` |
+| `tests/test_seed.py` | Nuevo `test_seed_data_final_events_only_for_qualified` (verifica que solo clasificados tienen registros en FINAL); conteos actualizados a la nueva demo (Athlete 20, Competitor 12, EventCompetitor 37) |
+
+### Qué cambia el endpoint `/final/`
+
+| Antes | Después |
+|-------|---------|
+| Solo muestra eventos FINAL (sin qualifier data) | Muestra **todos** los eventos (qualifier+final), ordenados por `event_number` |
+| Solo competidores con registro en FINAL | Todos los competidores; sin registro → `null` en `result`/`event_rank`/`score` |
+| `final_score` = suma solo eventos FINAL | `final_score` = suma global (qualifier + final) |
+
+### Seed: creación de registros en eventos FINAL
+
+| Antes | Después |
+|-------|---------|
+| `seed_data` creaba EventCompetitor en WOD Final para **todos** los competidores | Solo los top `finalist_slots` por categoría (según ranking qualifier) |
+
+Para que la demo muestre el caso "—" (antes todas las categorías tenían ≤ 2 competidores y todos clasificaban), se añadió **Daniel** (`DEMO-CFA-006`) como 3º de "Principiantes Individual" de cf_a con los peores resultados del qualifier (Fran 05:20, AMRAP 250, Max Snatch 70.0 → 88 pts en cada WOD, 264 total). Al quedar 3º no entra en los top `finalist_slots` (2) y **no** recibe registro en WOD 4. Conteos demo nuevos: **20** personas, **12** competidores, **37** `EventCompetitor` (Daniel aporta solo sus 3 registros de qualifier).
+
+### Bug corregido
+
+- `calculate_overall_ranking`: `order_by('event__event_number')` sobre `Event` (ruta de relación inválida) → corregido a `order_by('event_number')`.
+
+### Verificaciones
+
+| Verificación | Resultado |
+|--------------|-----------|
+| `manage.py check` | ✅ 0 issues |
+| `manage.py spectacular --validate` | ✅ 0 errors (exit 0) |
+| `manage.py makemigrations --check` | ⚠️ Detecta migración pendiente (NO creada, la genera el usuario) |
+| `pytest tests/` | ✅ **120/120 passed** (119 previos + conteos de seed actualizados) |

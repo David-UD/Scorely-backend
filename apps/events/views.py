@@ -1,16 +1,17 @@
 from rest_framework import viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
+
+from apps.users.permissions import IsCompetitionAdmin, visible_competitions_q
 
 from .models import (
     CompetitionCategory,
-    CompetitionStage,
     EnabledCompetitionCategory,
     Event,
     EventCompetitor,
 )
 from .serializers import (
     CompetitionCategorySerializer,
-    CompetitionStageSerializer,
     EnabledCompetitionCategorySerializer,
     EventCompetitorSerializer,
     EventSerializer,
@@ -29,19 +30,24 @@ class EnabledCompetitionCategoryViewSet(viewsets.ModelViewSet):
     filterset_fields = ('competition',)
 
 
-class CompetitionStageViewSet(viewsets.ModelViewSet):
-    permission_classes = (IsAuthenticatedOrReadOnly,)
-    queryset = CompetitionStage.objects.all()
-    serializer_class = CompetitionStageSerializer
-    filterset_fields = ('competition', 'stage_type')
-
-
 class EventViewSet(viewsets.ModelViewSet):
-    permission_classes = (IsAuthenticatedOrReadOnly,)
+    permission_classes = (IsAuthenticatedOrReadOnly, IsCompetitionAdmin)
     queryset = Event.objects.all()
     serializer_class = EventSerializer
-    filterset_fields = ('competition_stage',)
+    filterset_fields = ('competition', 'phase')
     search_fields = ('name',)
+
+    def get_queryset(self):
+        return self.queryset.filter(
+            competition__in=visible_competitions_q(self.request.user),
+        )
+
+    def create(self, request, *args, **kwargs):
+        competition_id = request.data.get('competition')
+        visible = visible_competitions_q(request.user).filter(id=competition_id)
+        if not request.user.is_superuser and not visible.exists():
+            raise PermissionDenied('No tenés permisos sobre esa competición.')
+        return super().create(request, *args, **kwargs)
 
 
 class EventCompetitorViewSet(viewsets.ModelViewSet):

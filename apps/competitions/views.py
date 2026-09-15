@@ -1,14 +1,18 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
 
-from .models import Affiliation, Competition, CompetitionType, Location
+from apps.users.permissions import IsCompetitionAdmin
+
+from .models import Affiliation, Competition, CompetitionType, Location, StatusCompetition
 from .serializers import (
     AffiliationSerializer,
     CompetitionSerializer,
     CompetitionTypeSerializer,
     CompetitionWriteSerializer,
     LocationSerializer,
+    StatusCompetitionSerializer,
 )
 
 
@@ -32,12 +36,38 @@ class LocationViewSet(viewsets.ModelViewSet):
     filterset_fields = ('city', 'state', 'country')
 
 
+class StatusCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = StatusCompetition.objects.all()
+    serializer_class = StatusCompetitionSerializer
+    search_fields = ('code', 'name')
+
+
 class CompetitionViewSet(viewsets.ModelViewSet):
-    permission_classes = (IsAuthenticatedOrReadOnly,)
+    permission_classes = (IsAuthenticatedOrReadOnly, IsCompetitionAdmin)
     queryset = Competition.objects.all()
     serializer_class = CompetitionSerializer
     search_fields = ('name',)
     filterset_fields = ('competition_type', 'status')
+
+    def get_queryset(self):
+        queryset = self.queryset.all()
+        user = self.request.user
+        if user.is_authenticated and not user.is_superuser:
+            queryset = queryset.filter(
+                admins__user=user,
+                admins__is_active=True,
+            ).distinct()
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            raise PermissionDenied('Solo el superusuario puede crear competiciones.')
+        return super().create(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            raise PermissionDenied('Solo el superusuario puede eliminar competiciones.')
+        return super().destroy(request, *args, **kwargs)
 
     def get_serializer_class(self):
         if self.action in ('create', 'update', 'partial_update'):

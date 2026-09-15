@@ -1,8 +1,7 @@
 import pytest
-from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
-from apps.events.models import CompetitionStage, Event, EventCompetitor
+from apps.events.models import Event, EventCompetitor
 
 
 @pytest.mark.django_db
@@ -30,53 +29,72 @@ class TestEnabledCompetitionCategory:
 
 
 @pytest.mark.django_db
-class TestCompetitionStage:
-    def test_create_qualifier(self, stage_qualifier):
-        assert stage_qualifier.stage_type == CompetitionStage.StageType.QUALIFIER
-        assert stage_qualifier.qualification_count == 5
-
-    def test_create_final(self, stage_final):
-        assert stage_final.stage_type == CompetitionStage.StageType.FINAL
-
-    def test_only_one_qualifier_per_competition(self, competition, stage_qualifier):
-        second = CompetitionStage(
-            competition=competition,
-            stage_type=CompetitionStage.StageType.QUALIFIER,
-            qualification_count=3,
-            order=3,
-        )
-        with pytest.raises(ValidationError):
-            second.clean()
-
-
-@pytest.mark.django_db
 class TestEvent:
-    def test_create_time_event(self, event):
+    def test_create_qualifier(self, event):
         assert event.event_number == 1
+        assert event.phase == Event.Phase.QUALIFIER
         assert event.workout == '21-15-9: Thrusters + Pull-ups'
         assert event.is_ascending is True
         assert event.is_active is True
-        assert event.competition_stage.stage_type == CompetitionStage.StageType.QUALIFIER
+        assert event.competition is not None
 
-    def test_unique_stage_event_number(self, stage_qualifier, event):
+    def test_create_final(self, competition):
+        event = Event.objects.create(
+            competition=competition,
+            phase=Event.Phase.FINAL,
+            event_number=3,
+            name='WOD Final',
+            workout='Evento final',
+            is_ascending=True,
+        )
+        assert event.phase == Event.Phase.FINAL
+
+    def test_same_event_number_allowed_across_phases(self, event):
+        final_event = Event.objects.create(
+            competition=event.competition,
+            phase=Event.Phase.FINAL,
+            event_number=1,
+            name='WOD Final',
+            workout='Evento final',
+            is_ascending=True,
+        )
+        assert final_event.event_number == 1
+        assert final_event.phase == Event.Phase.FINAL
+
+    def test_unique_event_number_per_competition_and_phase(self, event):
         with pytest.raises(IntegrityError):
             Event.objects.create(
-                competition_stage=stage_qualifier,
+                competition=event.competition,
+                phase=Event.Phase.QUALIFIER,
                 event_number=1,
                 name='WOD Duplicate',
                 workout='Duplicado',
                 is_ascending=True,
             )
 
-    def test_next_event_number_allowed(self, stage_qualifier):
+    def test_same_event_number_allowed_in_other_competition(self, event, competition_type,
+                                                            status_competition, affiliation,
+                                                            location):
+        from apps.competitions.models import Competition
+
+        other = Competition.objects.create(
+            name='Other Games',
+            competition_type=competition_type,
+            status=status_competition,
+            affiliation=affiliation,
+            location=location,
+            start_date='2028-09-01',
+            slug='other-games',
+        )
         event2 = Event.objects.create(
-            competition_stage=stage_qualifier,
-            event_number=2,
+            competition=other,
+            phase=Event.Phase.QUALIFIER,
+            event_number=1,
             name='WOD 2',
             workout='AMRAP 12 min',
             is_ascending=False,
         )
-        assert event2.event_number == 2
+        assert event2.event_number == 1
 
 
 @pytest.mark.django_db

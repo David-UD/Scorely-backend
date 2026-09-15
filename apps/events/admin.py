@@ -2,7 +2,6 @@ from django.contrib import admin
 
 from .models import (
     CompetitionCategory,
-    CompetitionStage,
     EnabledCompetitionCategory,
     Event,
     EventCompetitor,
@@ -17,25 +16,17 @@ class CompetitionCategoryAdmin(admin.ModelAdmin):
 
 @admin.register(EnabledCompetitionCategory)
 class EnabledCompetitionCategoryAdmin(admin.ModelAdmin):
-    list_display = ('competition', 'competition_category')
+    list_display = ('competition', 'competition_category', 'finalist_slots')
     search_fields = ('competition__name', 'competition_category__name')
     autocomplete_fields = ('competition', 'competition_category')
 
 
-@admin.register(CompetitionStage)
-class CompetitionStageAdmin(admin.ModelAdmin):
-    list_display = ('competition', 'stage_type', 'qualification_count', 'order')
-    list_filter = ('stage_type',)
-    search_fields = ('competition__name',)
-    autocomplete_fields = ('competition',)
-
-
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
-    list_display = ('name', 'event_number', 'competition_stage', 'is_ascending', 'is_active')
-    list_filter = ('is_ascending', 'is_active')
+    list_display = ('name', 'event_number', 'competition', 'phase', 'is_ascending', 'is_active')
+    list_filter = ('phase', 'is_ascending', 'is_active')
     search_fields = ('name', 'workout')
-    autocomplete_fields = ('competition_stage',)
+    autocomplete_fields = ('competition',)
 
 
 @admin.register(EventCompetitor)

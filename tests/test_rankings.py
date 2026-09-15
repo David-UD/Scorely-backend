@@ -136,7 +136,8 @@ class TestCompetitionRankingService:
         events = [event]
         for i in range(2, 6):
             events.append(Event.objects.create(
-                competition_stage=event.competition_stage,
+                competition=event.competition,
+                phase=event.phase,
                 event_number=i,
                 name=f'WOD {i}',
                 workout=event.workout,
@@ -164,7 +165,7 @@ class TestCompetitionRankingService:
             EventRankingService.calculate_event_ranking(ec_event)
 
         service = CompetitionRankingService()
-        ranking = service.calculate_competition_ranking(competition, event.competition_stage)
+        ranking = service.calculate_competition_ranking(competition, Event.Phase.QUALIFIER)
 
         entry = ranking[list(ranking.keys())[0]]
         assert len(entry) == 2
@@ -178,7 +179,8 @@ class TestCompetitionRankingService:
         events = [event]
         for i in range(2, 6):
             events.append(Event.objects.create(
-                competition_stage=event.competition_stage,
+                competition=event.competition,
+                phase=event.phase,
                 event_number=i,
                 name=f'WOD {i}',
                 workout=event.workout,
@@ -217,12 +219,150 @@ class TestCompetitionRankingService:
             EventRankingService.calculate_event_ranking(ec_event)
 
         service = CompetitionRankingService()
-        ranking = service.calculate_competition_ranking(competition, event.competition_stage)
+        ranking = service.calculate_competition_ranking(competition, Event.Phase.QUALIFIER)
 
         entry = ranking[list(ranking.keys())[0]]
         assert entry[0]['rank'] == 1
         assert entry[1]['rank'] == 1
         assert entry[2]['rank'] == 3
+
+    def test_event_results_present_and_ordered(self, event, event_desc, competition,
+                                               enabled_category, scoring_rules):
+        competitors = self._make_competitors(competition, enabled_category, 2)
+
+        third = Event.objects.create(
+            competition=competition,
+            phase=event.phase,
+            event_number=3,
+            name='WOD 3',
+            workout=event.workout,
+            is_ascending=event.is_ascending,
+        )
+
+        events_ordered = [event, event_desc, third]
+        results_c1 = ['05:00', '04:00', '03:00']
+        results_c2 = ['04:00', '05:00', '06:00']
+
+        for idx, ec_event in enumerate(events_ordered):
+            EventCompetitor.objects.create(
+                competitor=competitors[0],
+                event=ec_event,
+                result=results_c1[idx],
+            )
+            EventCompetitor.objects.create(
+                competitor=competitors[1],
+                event=ec_event,
+                result=results_c2[idx],
+            )
+
+        for ec_event in events_ordered:
+            EventRankingService.calculate_event_ranking(ec_event)
+
+        service = CompetitionRankingService()
+        ranking = service.calculate_competition_ranking(competition, Event.Phase.QUALIFIER)
+
+        entries = ranking[list(ranking.keys())[0]]
+        by_id = {entry['competitor'].id: entry for entry in entries}
+
+        first = by_id[competitors[0].id]
+        assert len(first['event_results']) == 3
+        assert [er['event_number'] for er in first['event_results']] == [1, 2, 3]
+        assert [er['result'] for er in first['event_results']] == ['05:00', '04:00', '03:00']
+        assert first['event_results'][0]['event_name'] == 'WOD 1'
+        assert sum(er['score'] for er in first['event_results']) == first['final_score']
+
+    def test_event_results_empty_phase(self, event, competition, enabled_category):
+        service = CompetitionRankingService()
+        ranking = service.calculate_competition_ranking(competition, Event.Phase.FINAL)
+        assert set(ranking.keys()) == {enabled_category}
+        assert ranking[enabled_category] == []
+
+    def test_overall_ranking_combines_phases(self, event, competition, enabled_category, scoring_rules):
+        competitors = self._make_competitors(competition, enabled_category, 2)
+
+        final_event = Event.objects.create(
+            competition=competition,
+            phase=Event.Phase.FINAL,
+            event_number=2,
+            name='WOD Final',
+            workout=event.workout,
+            is_ascending=event.is_ascending,
+        )
+
+        events_ordered = [event, final_event]
+        for idx, ec_event in enumerate(events_ordered):
+            result_c1 = '05:00' if idx == 0 else '04:00'  # qualifier rank 2, final rank 1
+            result_c2 = '04:00' if idx == 0 else '05:00'  # qualifier rank 1, final rank 2
+            EventCompetitor.objects.create(competitor=competitors[0], event=ec_event, result=result_c1)
+            EventCompetitor.objects.create(competitor=competitors[1], event=ec_event, result=result_c2)
+
+        for ec_event in events_ordered:
+            EventRankingService.calculate_event_ranking(ec_event)
+
+        service = CompetitionRankingService()
+        ranking = service.calculate_overall_ranking(competition)
+
+        entry = ranking[list(ranking.keys())[0]]
+        assert len(entry) == 2
+        assert [er['phase'] for er in entry[0]['event_results']] == ['QUALIFIER', 'FINAL']
+        assert entry[0]['event_results'][1]['event_name'] == 'WOD Final'
+        assert sorted(item['final_score'] for item in entry) == [194, 194]
+
+    def test_overall_ranking_missing_records_are_null(self, event, competition, enabled_category, scoring_rules):
+        competitors = self._make_competitors(competition, enabled_category, 2)
+
+        final_event = Event.objects.create(
+            competition=competition,
+            phase=Event.Phase.FINAL,
+            event_number=2,
+            name='WOD Final',
+            workout=event.workout,
+            is_ascending=event.is_ascending,
+        )
+
+        # Comp1 participates in both; Comp2 did not qualify (no FINAL record)
+        EventCompetitor.objects.create(competitor=competitors[0], event=event, result='05:00')
+        EventCompetitor.objects.create(competitor=competitors[1], event=event, result='04:00')
+        EventCompetitor.objects.create(competitor=competitors[0], event=final_event, result='06:00')
+
+        for ec_event in [event, final_event]:
+            EventRankingService.calculate_event_ranking(ec_event)
+
+        service = CompetitionRankingService()
+        ranking = service.calculate_overall_ranking(competition)
+
+        entry = ranking[list(ranking.keys())[0]]
+        by_id = {item['competitor'].id: item for item in entry}
+
+        first = by_id[competitors[0].id]
+        second = by_id[competitors[1].id]
+
+        assert len(first['event_results']) == 2
+        assert len(second['event_results']) == 2
+
+        assert first['final_score'] == 194  # qualifier 94 + final 100
+        assert first['event_results'][0]['result'] == '05:00'
+        assert first['event_results'][1]['result'] == '06:00'
+
+        assert second['final_score'] == 100  # only qualifier counted
+        assert second['event_results'][1]['result'] is None
+        assert second['event_results'][1]['event_rank'] is None
+        assert second['event_results'][1]['score'] is None
+
+    def test_overall_ranking_without_final_events(self, event, competition, enabled_category, scoring_rules):
+        competitors = self._make_competitors(competition, enabled_category, 2)
+
+        EventCompetitor.objects.create(competitor=competitors[0], event=event, result='05:00')
+        EventCompetitor.objects.create(competitor=competitors[1], event=event, result='04:00')
+        EventRankingService.calculate_event_ranking(event)
+
+        service = CompetitionRankingService()
+        ranking = service.calculate_overall_ranking(competition)
+
+        entry = ranking[list(ranking.keys())[0]]
+        assert len(entry) == 2
+        assert entry[0]['final_score'] == 100
+        assert entry[1]['final_score'] == 94
 
 
 @pytest.mark.django_db

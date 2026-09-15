@@ -1,3 +1,4 @@
+from django.utils.text import slugify
 from rest_framework import serializers
 
 from .models import Affiliation, Competition, CompetitionType, Location, StatusCompetition
@@ -46,6 +47,7 @@ class CompetitionWriteSerializer(serializers.ModelSerializer):
     status = serializers.PrimaryKeyRelatedField(queryset=StatusCompetition.objects.all())
     affiliation = serializers.PrimaryKeyRelatedField(queryset=Affiliation.objects.all())
     location = serializers.PrimaryKeyRelatedField(queryset=Location.objects.all())
+    slug = serializers.SlugField(required=False, allow_blank=True)
 
     class Meta:
         model = Competition
@@ -53,3 +55,15 @@ class CompetitionWriteSerializer(serializers.ModelSerializer):
             'id', 'name', 'description', 'competition_type', 'status',
             'affiliation', 'location', 'start_date', 'end_date', 'slug',
         )
+
+    def create(self, validated_data):
+        if not validated_data.get('slug'):
+            base = slugify(validated_data['name'])[:50] or 'competition'
+            slug = base
+            counter = 1
+            while Competition.objects.filter(slug=slug).exists():
+                counter += 1
+                suffix = str(counter)
+                slug = f"{base[:50 - len(suffix)]}-{suffix}"
+            validated_data['slug'] = slug
+        return super().create(validated_data)

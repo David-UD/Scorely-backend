@@ -37,7 +37,7 @@ class EventRankingService:
 
         ranked = EventRankingService._apply_dense_ranking(parsed_results)
 
-        competition = event.competition_stage.competition
+        competition = event.competition
         scoring_service = ScoringService()
 
         for item in ranked:

@@ -1,4 +1,3 @@
-from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -25,6 +24,7 @@ class EnabledCompetitionCategory(models.Model):
         on_delete=models.CASCADE,
         related_name='enabled_in_editions',
     )
+    finalist_slots = models.PositiveIntegerField(default=0)
 
     class Meta:
         constraints = [
@@ -39,47 +39,25 @@ class EnabledCompetitionCategory(models.Model):
         return f"{self.competition} - {self.competition_category}"
 
 
-class CompetitionStage(models.Model):
-    class StageType(models.TextChoices):
+class Event(models.Model):
+    class Phase(models.TextChoices):
         QUALIFIER = 'QUALIFIER', 'Qualifier'
         FINAL = 'FINAL', 'Final'
 
-    competition = models.ForeignKey('competitions.Competition', on_delete=models.CASCADE, related_name='stages')
-    stage_type = models.CharField(max_length=20, choices=StageType.choices)
-    qualification_count = models.PositiveIntegerField(default=0)
-    order = models.PositiveIntegerField()
-
-    class Meta:
-        ordering = ['order']
-
-    def __str__(self):
-        return f"{self.competition} - {self.get_stage_type_display()}"
-
-    def clean(self):
-        existing = CompetitionStage.objects.filter(
-            competition=self.competition,
-            stage_type=self.stage_type,
-        )
-        if self.pk:
-            existing = existing.exclude(pk=self.pk)
-        if existing.exists():
-            raise ValidationError(f"Only one {self.stage_type} stage allowed per edition.")
-
-
-class Event(models.Model):
+    competition = models.ForeignKey('competitions.Competition', on_delete=models.CASCADE, related_name='events')
     name = models.CharField(max_length=200)
     workout = models.TextField()
     description = models.TextField(blank=True)
-    competition_stage = models.ForeignKey(CompetitionStage, on_delete=models.CASCADE, related_name='events')
     event_number = models.PositiveIntegerField()
+    phase = models.CharField(max_length=20, choices=Phase.choices, default=Phase.QUALIFIER)
     is_ascending = models.BooleanField(default=False, help_text="Indica si el resultado se ordena de menor a mayor.")
     is_active = models.BooleanField(default=True)
     
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=['competition_stage', 'event_number'],
-                name='unique_event_number_per_stage',
+                fields=['competition', 'phase', 'event_number'],
+                name='unique_event_number_per_phase',
             ),
         ]
         ordering = ['event_number']

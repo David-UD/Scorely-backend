@@ -59,7 +59,7 @@ class TestRolePermissions:
         client = APIClient()
         client.force_authenticate(user=user)
         response = client.get('/api/v1/users/')
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_competition_admin_assignment(self, user, competition, superadmin):
         relation = CompetitionAdmin.objects.create(

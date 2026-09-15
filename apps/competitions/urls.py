@@ -6,12 +6,14 @@ from .views import (
     CompetitionTypeViewSet,
     CompetitionViewSet,
     LocationViewSet,
+    StatusCompetitionViewSet,
 )
 
 router = DefaultRouter()
 router.register('competition-types', CompetitionTypeViewSet)
 router.register('affiliations', AffiliationViewSet)
 router.register('locations', LocationViewSet)
+router.register('status-competitions', StatusCompetitionViewSet)
 router.register('competitions', CompetitionViewSet)
 
 urlpatterns = [

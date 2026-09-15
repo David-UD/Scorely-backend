@@ -12,7 +12,6 @@ from apps.competitions.models import (
 )
 from apps.events.models import (
     CompetitionCategory,
-    CompetitionStage,
     EnabledCompetitionCategory,
     Event,
     EventCompetitor,
@@ -40,7 +39,9 @@ class Command(BaseCommand):
         self._seed_scoring_rules()
         self._seed_participants()
         self._seed_results()
-        self._compute_event_rankings()
+        self._compute_event_rankings(phase=Event.Phase.QUALIFIER)
+        self._seed_final_results()
+        self._compute_event_rankings(phase=Event.Phase.FINAL)
 
         self.stdout.write(self.style.SUCCESS('Seed completed successfully.'))
 
@@ -249,40 +250,45 @@ class Command(BaseCommand):
     def _seed_enabled_categories(self):
         self._enabled_categories = {}
         plans = {
-            'cf_a': ['Principiantes Individual', 'Intermedios Individual', 'Principiantes Mixto'],
-            'cf_b': ['Relevos 4'],
-            'hy_a': ['RX Individual'],
-            'hy_b': ['RX Individual'],
+            'cf_a': {
+                'Principiantes Individual': 2,
+                'Intermedios Individual': 2,
+                'Principiantes Mixto': 2,
+            },
+            'cf_b': {
+                'Relevos 4': 2,
+            },
+            'hy_a': {
+                'RX Individual': 0,
+            },
+            'hy_b': {
+                'RX Individual': 0,
+            },
         }
-        for key, category_names in plans.items():
+        for key, category_map in plans.items():
             competition = self._competitions[key]
             self._enabled_categories[key] = []
-            for category_name in category_names:
+            for category_name, slots in category_map.items():
                 category = CompetitionCategory.objects.get(name=category_name)
                 obj, created = EnabledCompetitionCategory.objects.get_or_create(
                     competition=competition,
                     competition_category=category,
+                    defaults={'finalist_slots': slots},
                 )
+                if not created and obj.finalist_slots != slots:
+                    obj.finalist_slots = slots
+                    obj.save(update_fields=['finalist_slots'])
                 self._enabled_categories[key].append(obj)
                 status = 'created' if created else 'exists'
-                self.stdout.write(f'  EnabledCompetitionCategory {competition} - {category_name} {status}')
+                self.stdout.write(f'  EnabledCompetitionCategory {competition} - {category_name} (slots={slots}) {status}')
 
     def _seed_stages_and_events(self):
         self._events = {}
 
-        def create_stage(competition, stage_type, order, qualification_count):
-            stage, created = CompetitionStage.objects.get_or_create(
-                competition=competition,
-                stage_type=stage_type,
-                defaults={'order': order, 'qualification_count': qualification_count},
-            )
-            status = 'created' if created else 'exists'
-            self.stdout.write(f'  CompetitionStage {competition} - {stage_type} {status}')
-            return stage
-
-        def create_event(stage, event_number, name, workout, is_ascending):
+        def create_event(competition, phase, event_number, name, workout, is_ascending):
             event, created = Event.objects.get_or_create(
-                competition_stage=stage,
+                competition=competition,
+                phase=phase,
                 event_number=event_number,
                 defaults={
                     'name': name,
@@ -297,39 +303,32 @@ class Command(BaseCommand):
         self._events['cf_a'] = {}
         self._events['cf_b'] = {}
 
-        cf_a_qual = create_stage(self._competitions['cf_a'], CompetitionStage.StageType.QUALIFIER, 1, 2)
-        cf_a_fin = create_stage(self._competitions['cf_a'], CompetitionStage.StageType.FINAL, 2, 0)
         self._events['cf_a']['qualifier'] = [
-            create_event(cf_a_qual, 1, 'Fran', '21-15-9: Thrusters (43kg) + Pull-ups', True),
-            create_event(cf_a_qual, 2, 'AMRAP 12 min', 'AMRAP 12 min: 10 Burpees, 10 Box Jump, 10 KB Swing', False),
-            create_event(cf_a_qual, 3, 'Max Snatch', '1RM Snatch — peso máximo en 10 min', False),
+            create_event(self._competitions['cf_a'], Event.Phase.QUALIFIER, 1, 'Fran', '21-15-9: Thrusters (43kg) + Pull-ups', True),
+            create_event(self._competitions['cf_a'], Event.Phase.QUALIFIER, 2, 'AMRAP 12 min', 'AMRAP 12 min: 10 Burpees, 10 Box Jump, 10 KB Swing', False),
+            create_event(self._competitions['cf_a'], Event.Phase.QUALIFIER, 3, 'Max Snatch', '1RM Snatch — peso máximo en 10 min', False),
         ]
         self._events['cf_a']['final'] = [
-            create_event(cf_a_fin, 1, 'WOD Final', 'Evento final por tiempo', True),
+            create_event(self._competitions['cf_a'], Event.Phase.FINAL, 4, 'WOD Final', 'Evento final por tiempo', True),
         ]
 
-        cf_b_qual = create_stage(self._competitions['cf_b'], CompetitionStage.StageType.QUALIFIER, 1, 2)
-        cf_b_fin = create_stage(self._competitions['cf_b'], CompetitionStage.StageType.FINAL, 2, 0)
         self._events['cf_b']['qualifier'] = [
-            create_event(cf_b_qual, 1, 'Fran', '21-15-9: Thrusters (43kg) + Pull-ups', True),
-            create_event(cf_b_qual, 2, 'AMRAP 12 min', 'AMRAP 12 min: 10 Burpees, 10 Box Jump, 10 KB Swing', False),
-            create_event(cf_b_qual, 3, 'Max Snatch', '1RM Snatch — peso máximo en 10 min', False),
-            create_event(cf_b_qual, 4, 'Run 5K', 'Carrera 5000m en pista', False),
+            create_event(self._competitions['cf_b'], Event.Phase.QUALIFIER, 1, 'Fran', '21-15-9: Thrusters (43kg) + Pull-ups', True),
+            create_event(self._competitions['cf_b'], Event.Phase.QUALIFIER, 2, 'AMRAP 12 min', 'AMRAP 12 min: 10 Burpees, 10 Box Jump, 10 KB Swing', False),
+            create_event(self._competitions['cf_b'], Event.Phase.QUALIFIER, 3, 'Max Snatch', '1RM Snatch — peso máximo en 10 min', False),
+            create_event(self._competitions['cf_b'], Event.Phase.QUALIFIER, 4, 'Run 5K', 'Carrera 5000m en pista', False),
         ]
         self._events['cf_b']['final'] = [
-            create_event(cf_b_fin, 1, 'WOD Final', 'Evento final por tiempo', True),
+            create_event(self._competitions['cf_b'], Event.Phase.FINAL, 5, 'WOD Final', 'Evento final por tiempo', True),
         ]
 
         self._events['hy_a'] = {}
         self._events['hy_b'] = {}
-
-        hy_a_qual = create_stage(self._competitions['hy_a'], CompetitionStage.StageType.QUALIFIER, 1, 0)
-        hy_b_qual = create_stage(self._competitions['hy_b'], CompetitionStage.StageType.QUALIFIER, 1, 0)
         self._events['hy_a']['qualifier'] = [
-            create_event(hy_a_qual, 1, 'HYROX Race', 'Carrera HYROX por tiempo', True),
+            create_event(self._competitions['hy_a'], Event.Phase.QUALIFIER, 1, 'HYROX Race', 'Carrera HYROX por tiempo', True),
         ]
         self._events['hy_b']['qualifier'] = [
-            create_event(hy_b_qual, 1, 'HYROX Race', 'Carrera HYROX por tiempo', True),
+            create_event(self._competitions['hy_b'], Event.Phase.QUALIFIER, 1, 'HYROX Race', 'Carrera HYROX por tiempo', True),
         ]
 
     def _seed_scoring_rules(self):
@@ -419,6 +418,7 @@ class Command(BaseCommand):
 
         create_individual('cf_a', 'Principiantes Individual', 'Carlos', 'Primero', 'DEMO-CFA-001')
         create_individual('cf_a', 'Principiantes Individual', 'Luis', 'Segundo', 'DEMO-CFA-002')
+        create_individual('cf_a', 'Principiantes Individual', 'Daniel', 'Nuevo', 'DEMO-CFA-006')
         create_individual('cf_a', 'Intermedios Individual', 'Ana', 'Tercero', 'DEMO-CFA-003')
         create_team(
             'cf_a',
@@ -461,45 +461,43 @@ class Command(BaseCommand):
                 'Fran': '04:36',
                 'AMRAP 12 min': '315',
                 'Max Snatch': '97.5',
-                'WOD Final': '09:12',
             },
             'DEMO-CFA-002': {
                 'Fran': '04:52',
                 'AMRAP 12 min': '289',
                 'Max Snatch': '82.5',
-                'WOD Final': '10:05',
             },
             'DEMO-CFA-003': {
                 'Fran': '04:20',
                 'AMRAP 12 min': '341',
                 'Max Snatch': '105.0',
-                'WOD Final': '08:47',
             },
             'DEMO-CFA-004': {
                 'Fran': '05:10',
                 'AMRAP 12 min': '278',
                 'Max Snatch': '90.0',
-                'WOD Final': '11:22',
             },
             'DEMO-CFA-005': {
                 'Fran': '05:10',
                 'AMRAP 12 min': '265',
                 'Max Snatch': '95.0',
-                'WOD Final': '11:58',
+            },
+            'DEMO-CFA-006': {
+                'Fran': '05:20',
+                'AMRAP 12 min': '250',
+                'Max Snatch': '70.0',
             },
             'DEMO-CFB-001': {
                 'Fran': '05:30',
                 'AMRAP 12 min': '310',
                 'Max Snatch': '110.0',
                 'Run 5K': '5000',
-                'WOD Final': '12:40',
             },
             'DEMO-CFB-002': {
                 'Fran': '06:02',
                 'AMRAP 12 min': '295',
                 'Max Snatch': '100.0',
                 'Run 5K': '4850',
-                'WOD Final': '13:25',
             },
             'DEMO-HYA-001': {
                 'HYROX Race': '01:12:30',
@@ -520,7 +518,7 @@ class Command(BaseCommand):
         for competitors in self._competitors.values():
             for competitor in competitors:
                 results = results_by_competitor.get(competitor.registration_number, {})
-                events = self._events_for(competitor)
+                events = self._qualifier_events_for(competitor)
                 for event in events:
                     default_result = str(event.event_number)
                     result = results.get(event.name, default_result)
@@ -535,7 +533,54 @@ class Command(BaseCommand):
                         updated_count += 1
         self.stdout.write(f'  EventCompetitor {created_count} created, {updated_count} updated')
 
-    def _events_for(self, competitor):
+    def _seed_final_results(self):
+        results_by_competitor = {
+            'DEMO-CFA-001': {'WOD Final': '09:12'},
+            'DEMO-CFA-002': {'WOD Final': '10:05'},
+            'DEMO-CFA-003': {'WOD Final': '08:47'},
+            'DEMO-CFA-004': {'WOD Final': '11:22'},
+            'DEMO-CFA-005': {'WOD Final': '11:58'},
+            'DEMO-CFB-001': {'WOD Final': '12:40'},
+            'DEMO-CFB-002': {'WOD Final': '13:25'},
+        }
+
+        from apps.rankings.services.competition_ranking_service import CompetitionRankingService
+        service = CompetitionRankingService()
+
+        created_count = 0
+        for key in ('cf_a', 'cf_b'):
+            competition = self._competitions[key]
+
+            ranking = service.calculate_competition_ranking(
+                competition, Event.Phase.QUALIFIER,
+            )
+
+            for enabled_category, ranked_competitors in ranking.items():
+                slots = enabled_category.finalist_slots
+                if not slots:
+                    continue
+
+                qualifiers = [
+                    item['competitor']
+                    for item in ranked_competitors[:slots]
+                ]
+
+                for competitor in qualifiers:
+                    results = results_by_competitor.get(competitor.registration_number, {})
+                    for event in self._events[key].get('final', []):
+                        default_result = str(event.event_number)
+                        result = results.get(event.name, default_result)
+                        obj, created = EventCompetitor.objects.update_or_create(
+                            competitor=competitor,
+                            event=event,
+                            defaults={'result': result},
+                        )
+                        if created:
+                            created_count += 1
+
+        self.stdout.write(f'  EventCompetitor (final) {created_count} created')
+
+    def _qualifier_events_for(self, competitor):
         competition_key = None
         for key in ('cf_a', 'cf_b', 'hy_a', 'hy_b'):
             if competitor.competition_id == self._competitions[key].id:
@@ -543,14 +588,13 @@ class Command(BaseCommand):
                 break
         if competition_key is None:
             return []
-        events = []
-        for stage_key in self._events[competition_key]:
-            events.extend(self._events[competition_key][stage_key])
-        return events
+        return self._events[competition_key].get('qualifier', [])
 
-    def _compute_event_rankings(self):
+    def _compute_event_rankings(self, phase=None):
         for key in ('cf_a', 'cf_b', 'hy_a', 'hy_b'):
             for stage_key in self._events[key]:
                 for event in self._events[key][stage_key]:
+                    if phase and event.phase != phase:
+                        continue
                     ranked = EventRankingService.calculate_event_ranking(event)
                     self.stdout.write(f'  EventRanking {event.name}: {len(ranked)} scored')

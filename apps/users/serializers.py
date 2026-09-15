@@ -6,8 +6,18 @@ from .models import CompetitionAdmin, User
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ('id', 'email', 'first_name', 'last_name', 'is_active', 'created_at', 'updated_at')
-        read_only_fields = ('created_at', 'updated_at')
+        fields = (
+            'id',
+            'email',
+            'first_name',
+            'last_name',
+            'is_active',
+            'is_staff',
+            'is_superuser',
+            'created_at',
+            'updated_at',
+        )
+        read_only_fields = ('created_at', 'updated_at', 'is_staff', 'is_superuser')
 
 
 class UserCreateSerializer(serializers.ModelSerializer):

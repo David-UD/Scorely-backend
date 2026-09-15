@@ -36,7 +36,7 @@ Scorely/
 │   ├── users/              # User, CompetitionAdmin, permisos, seed_data
 │   ├── competitions/       # CompetitionType, Affiliation, Location, StatusCompetition, Competition
 │   ├── participants/       # Athlete, Team, TeamMember, Competitor
-│   ├── events/             # CompetitionCategory, EnabledCompetitionCategory, CompetitionStage, Event (workout/is_ascending/is_active), EventCompetitor
+│   ├── events/             # CompetitionCategory, EnabledCompetitionCategory, Event (competition FK + phase + workout/is_ascending/is_active), EventCompetitor
 │   ├── scoring/            # ScoringRule, ScoringService
 │   └── rankings/           # Leaderboard, ranking services
 ├── tests/                  # Suite de pytest
@@ -78,12 +78,11 @@ docker compose up --build
 ## Modelo de datos (resumen)
 
 ```
-Competition (slug único, año derivado de start_date, status DRAFT/ACTIVE/FINISHED)
-  └─▶ CompetitionStage      una QUALIFIER y una FINAL por competición
-        └─▶ Event           UNIQUE(competition_stage, event_number)
-              └─▶ EventCompetitor   UNIQUE(competitor, event) / result + event_rank + score
-                    └─▶ Final Score
-                          └─▶ Leaderboard
+Competition (slug único, año derivado de start_date, status DRAFT/ACTIVE/FINISHED, finalist_slots)
+  └─▶ Event                una QUALIFIER y una FINAL por competición (phase) / UNIQUE(competition, event_number)
+        └─▶ EventCompetitor   UNIQUE(competitor, event) / result + event_rank + score
+              └─▶ Final Score
+                    └─▶ Leaderboard
 
 Participantes:
 Athlete ─┐
@@ -246,6 +245,101 @@ Checklist verificable al terminar:
 - No abrir de más: si una vista pública futura necesitara otros catálogos (p. ej. `competition-categories` o `enabled-competition-categories` para filtros de leaderboard), abrirlos en una iteración aparte con su test.
 - El modelo de eventos ya no tiene `EventResultType`/`RankDirection`/`StatusEventCompetitor` (refactor del usuario): `Event` usa `workout`, `is_ascending` (True → menor es mejor / tiempo; False → mayor es mejor / numérico) e `is_active`; `EventCompetitor` no tiene `status`. Si una vista futura necesitara catálogos de resultado/dirección/estado, reintroducir el modelo o el campo en una iteración aparte.
 - Cuidado con la doble fuente de permisos: si se añade `DEFAULT_PERMISSION_CLASSES` global distinta, revisar que no contradiga los `permission_classes` por ViewSet.
+
+---
+
+# Parte II-bis — Especificación de la actualización actual
+
+## 1. Título
+
+Exponer `event_results` en el leaderboard de rankings
+
+## 2. Objetivo
+
+El frontend necesita saber **qué evento corresponde a cada valor** de `event_ranks`/`event_scores` del leaderboard (listas planas de enteros). Se agrega `event_results`, un desglose por evento dentro de cada `LeaderboardEntry`, con `event_id`, `event_number`, `event_name`, `phase`, `result` (string crudo), `event_rank` y `score`.
+
+## 3. Alcance
+
+**Incluye (se debe implementar):**
+- `apps/rankings/serializers.py`: nuevo `EventResultSerializer` + campo `event_results` en `LeaderboardEntrySerializer`.
+- `apps/rankings/services/competition_ranking_service.py`: construir y propagar `event_results` en cada entrada del ranking.
+- Tests: `tests/test_rankings.py` y `tests/test_api.py` (casos de `event_results`).
+
+**Excluye (NO tocar):**
+- Modelos (`Event`, `EventCompetitor`, `Competition`) ni migraciones.
+- `EventRankingService`, `ScoringService`, `LeaderboardViewSet`, rutas y permisos.
+- Eliminar `event_ranks`/`event_scores` (se conservan: backward-compatible).
+
+## 4. Cambios en el modelo de datos
+
+- Ninguno. No se generan migraciones.
+
+## 5. Cambios en la API
+
+- Solo se enriquece la respuesta de `GET /api/v1/leaderboards/competition/{id}/qualifier/` y `/final/`: cada `entry` incluye `event_results` (lista de objetos, ordenada por `event_number`). Sin cambios de rutas ni permisos.
+
+## 6. Cambios en lógica de negocio / servicios
+
+- `CompetitionRankingService.calculate_competition_ranking()` filtra por `competition` + `phase` (modelo vigente, opción 1 del refactor) y construye `event_results` desde el mismo queryset de `EventCompetitor` (evita N+1, orden consistente por `event__event_number`).
+- `_rank_competitors()` propaga `event_results` en el dict rankeado final.
+
+## 7. Cambios en Django Admin
+
+- Ninguno.
+
+## 8. Cambios en documentación
+
+- `Process.md`: registrar avances y fases de la iteración.
+- `RESULTADOS.md`: registrar el resultado y las verificaciones.
+- `README.md`: indicar que la respuesta del leaderboard incluye `event_results` con un ejemplo de estructura.
+
+## 9. Detalle de implementación
+
+Nuevo serializer en `apps/rankings/serializers.py`:
+
+```python
+class EventResultSerializer(serializers.Serializer):
+    event_id = serializers.IntegerField()
+    event_number = serializers.IntegerField()
+    event_name = serializers.CharField()
+    phase = serializers.CharField()
+    result = serializers.CharField()
+    event_rank = serializers.IntegerField(allow_null=True)
+    score = serializers.IntegerField(allow_null=True)
+```
+
+Campo nuevo en `LeaderboardEntrySerializer`:
+
+```python
+event_results = EventResultSerializer(many=True, read_only=True)
+```
+
+En el servicio, construir `event_results` desde el queryset ordenado de `EventCompetitor` y agregarlo al dict de `competitor_scores`; `_rank_competitors()` debe conservarlo al reconstruir el dict final.
+
+## 10. Pruebas requeridas
+
+| Test | Escenario | Resultado esperado |
+|------|-----------|--------------------|
+| Presencia | Capa de servicio: cada entry tiene `event_results` | `len == número de eventos` de la fase |
+| Estructura | Cada elemento expone los 7 campos | `event_id`, `event_number`, `event_name`, `phase`, `result`, `event_rank`, `score` |
+| Suma | `sum(score)` de `event_results` vs `final_score` | Iguales |
+| Orden | Múltiples eventos en una fase | Orden por `event_number` |
+| Vacío | Competitor sin resultados (o fase sin eventos) | `event_results == []` (o categoría con lista vacía) |
+| API | `GET qualifier` con datos rankeados | 200; `entries[0].event_results` presente y coherente |
+
+## 11. Criterios de aceptación
+
+- `python manage.py check --settings=config.settings.development` sin errores.
+- `python manage.py spectacular --validate --settings=config.settings.development` limpio (schema con `EventResult` y `event_results`).
+- Suite pytest completa en verde (incluidos los casos nuevos).
+- `event_ranks`/`event_scores` intactos (backward-compatible).
+
+## 12. Observaciones / riesgos
+
+- Backward-compatible: se agrega un campo, no se elimina ninguno.
+- `result` es el string crudo del resultado (p. ej. `"04:36"`), igual que `EventCompetitor.result`; no se parsea.
+- El orden interno es `event_number` (coherente con `Event.Meta.ordering`).
+- Impacto en tamaño de respuesta: una entrada mide ~7 campos × nº de eventos de la fase. Considerar paginación/serialización selectiva en el futuro si crece.
 
 ---
 

@@ -1,21 +1,22 @@
-# Plan de Implementación — Abrir GET públicos de solo lectura (PROMPT.md, Parte II)
+# Plan de Implementación — Exponer `event_results` en el leaderboard (PROMPT.md, Parte II)
 
-> Este plan reemplaza al plan anterior (Seed Update, ya completado y verificado). Documenta paso a paso cómo implementar la actualización definida en la **Parte II de `PROMPT.md`**: abrir la lectura pública (GET) de `competitions`, `competition-stages` y `events` para que el frontend consulta público funcione sin autenticación, manteniendo las escrituras protegidas por JWT.
+> Este plan reemplaza al plan anterior (Public GETs, ya completado y verificado). Documenta paso a paso cómo implementar la actualización pedida por el usuario y definida en la **Parte II de `PROMPT.md`** (sección nueva "Exponer `event_results` en el leaderboard de rankings"): enriquecer `LeaderboardEntrySerializer` y `CompetitionRankingService` para que el leaderboard devuelva el desglose de cada evento por competitor (`event_id`, `event_number`, `event_name`, `phase`, `result`, `event_rank`, `score`).
 >
 > **Alcance ejecutado por este plan: SOLO los cambios indicados. No ejecutar nada fuera de lo listado.**
 >
-> **Este plan NO ejecuta los cambios**: es la guía de implementación. Cada archivo modificado debe verificar los snippets aquí propuestos contra el código real antes de aplicar.
+> **Este plan NO ejecuta los cambios**: es la guía de implementación. Cada snippet debe verificarse contra el código real antes de aplicar.
+>
+> **Precondición (modelo):** este plan asume aplicada la **opción 1** acordada (refactor de modelos, sin migraciones): `Event` con FK directo `competition` y campo `phase` (`QUALIFIER`/`FINAL`), y **sin** `CompetitionStage`. Si el refactor aún no está aplicado, filtrar por el modelo vigente (`event__competition_stage__competition` / `event__competition_stage__stage_type`) hasta que se complete.
 
 ---
 
 ## Restricciones Globales
 
 - No crear ramas git / no push / no commit (el agente no toca git sin pedido explícito del usuario).
-- **NO ejecutar** `makemigrations`, `migrate`, `seed_data` ni `createsuperuser`: esta actualización **no genera migraciones** (sin cambios de modelo), por lo que no hay pasos de migración manuales.
-- No modificar modelos, serializers, services, urls ni la lógica de ranking/puntuación.
-- No cambiar `LeaderboardViewSet` (ya público con `AllowAny`).
-- No cambiar `config/settings/base.py` (se conserva `DEFAULT_PERMISSION_CLASSES = IsAuthenticated` como default global).
-- Seguir el patrón existente de `permission_classes` por ViewSet (como ya hace `LeaderboardViewSet`).
+- **NO ejecutar** `makemigrations`, `migrate`, `seed_data` ni `createsuperuser`: esta actualización **no genera migraciones** (sin cambios de modelo). No hay pasos de migración manuales.
+- No modificar modelos (`Event`, `EventCompetitor`, `Competition`), ni `EventRankingService`, ni `ScoringService`.
+- No cambiar rutas, permisos, filtros ni la estructura de `LeaderboardViewSet`.
+- **Backward-compatible:** se conservan `event_ranks` y `event_scores` (listas planas). Solo se agrega `event_results`.
 - No añadir comentarios al código salvo que se pidan.
 - Documentar avances en `Process.md` al iniciar y finalizar cada fase.
 
@@ -23,342 +24,284 @@
 
 ## Contexto / Estado actual
 
-- `config/settings/base.py:86-87` define `DEFAULT_PERMISSION_CLASSES = ('rest_framework.permissions.IsAuthenticated',)`. Solo `LeaderboardViewSet` declara `permission_classes = [AllowAny]` (`apps/rankings/views.py:19`).
-- Endpoints afectados hoy (exigen JWT por defecto):
-  - `CompetitionViewSet` (`apps/competitions/views.py:33-42`) → `GET /api/v1/competitions/` y `GET /api/v1/competitions/{id}/`.
-  - `CompetitionStageViewSet` (`apps/events/views.py:37-40`) → `GET /api/v1/competition-stages/?competition={id}`.
-  - `EventViewSet` (`apps/events/views.py:53-57`) → `GET /api/v1/events/?competition_stage={id}`.
-- `CompetitionSerializer` ya embebe `competition_type`, `status`, `affiliation` y `location` (solo lectura) →
-  la página pública de detalle no requiere llamadas adicionales a catálogos.
-- Los tres ViewSets mantienen filtros (django-filter) y búsquedas existentes: no se tocan.
-- Fixtures disponibles en `tests/conftest.py`: `user`, `superadmin`, `competition_type`, `status_competition`, `affiliation`, `location`, `competition`, `stage_qualifier`, `stage_final`, `event`, etc.
-- Patrón de tests API en `tests/test_api.py`: `rest_framework.test.APIClient`, `force_authenticate(user=...)`; anónimo = `APIClient()` sin autenticar.
-- `apps/users/permissions.py` contiene `IsSuperAdmin` (permiso global) y `IsCompetitionAdmin` (a nivel objeto). No se modifica salvo que se opte por la alternativa del mixin (ver Fase 1).
+- `apps/rankings/serializers.py:7-23` → `LeaderboardEntrySerializer` expone `rank`, `competitor_id`, `display_name`, `final_score`, `event_ranks` (lista de int) y `event_scores` (lista de int nullable). Las listas planas no permiten saber a qué evento pertenece cada valor.
+- `apps/rankings/serializers.py:26-32` → `LeaderboardSerializer` (agrupa por categoría) — no se toca su estructura.
+- `apps/rankings/services/competition_ranking_service.py`:
+  - `calculate_competition_ranking(competition, stage)` (líneas 10-59) arma `competitor_scores` con `final_score`, `event_ranks`, `event_scores`.
+  - `_rank_competitors()` (líneas 61-108) construye el dict rankeado final (pierde cualquier campo extra no listado).
+- `apps/rankings/views.py:27-66` → `LeaderboardViewSet` (qualifier/final) obtiene competición + stage y llama al servicio; `serializer_class = LeaderboardSerializer`.
+- `apps/rankings/services/final_qualification_service.py` → NO se toca en esta iteración (solo depende indirectamente del ranking).
+- Tests actuales que llaman al servicio: `tests/test_rankings.py:167` y `:220` (`calculate_competition_ranking(competition, event.competition_stage)`).
+- No existe aún en `PROMPT.md` la Parte II "Exponer event_results" (Fase 1 la incorpora).
+- `apps/events/models.py:72` ya usa `related_name='event_results'` en `EventCompetitor.competitor` (acceso `competitor.event_results`). No es un conflicto con el campo de serializer a agregar, pero debe tenerse presente al nombrar objetos.
 
 ---
 
 ## Pre-requisitos antes de implementar
 
-1. `.env` listo y entorno levantado (o `pip install -r requirements.txt` en local).
-2. Conocer el código real de los archivos objetivo (verificar líneas antes de cada edición).
-3. Suite de tests actual en verde (81 tests) antes de empezar (Fase 0 lo confirma).
-4. Confirmar con el usuario el **enfoque** (Fase 1): `IsAuthenticatedOrReadOnly` directo vs mixin.
+1. `.env` listo y entorno disponible (o `pip install -r requirements.txt`).
+2. **Confirmar el estado del modelo** (opción 1): `Event.competition` y `Event.phase` presentes; `CompetitionStage` ausente. Si el código sigue roto a mitad del refactor, no empezar esta iteración: primero completar el refactor.
+3. Conocer el código real de `apps/rankings/serializers.py`, `apps/rankings/services/competition_ranking_service.py`, `apps/rankings/views.py` y `tests/test_rankings.py` (verificar líneas antes de cada edición).
+4. Suite de tests actual en verde antes de empezar (Fase 2 lo confirma).
+5. Confirmar con el usuario la **estructura de `event_results`** (Fase 3): campos propuestos vs necesidad real del frontend.
 
 ---
 
-## Fase 0 — Preparación y verificación inicial
+## Fase 0 — Redactar la especificación en `PROMPT.md` (Parte II nueva)
 
-### Paso 0.1: Verificaciones de línea base (solo lectura)
+> Objetivo: dejar asentada la "indicación" que guía esta iteración (pedido previo del usuario: "agrega al PROMPT.md para que el serializer/service de rankings exponga event_results").
+
+### Paso 0.1: Insertar la nueva especificación en `PROMPT.md`
+
+Insertar una nueva sección **Parte II** entre el final de la Parte II actual (línea ~249, tras `---`) y la **Parte III** (línea 252). Encabezado imprescindible:
+
+- Título: **1. Título** → "Exponer `event_results` en el leaderboard de rankings".
+- **2. Objetivo**: el frontend necesita saber qué evento corresponde a cada `event_ranks`/`event_scores`; se agrega `event_results` (desglose por evento).
+- **3. Alcance**: serializers + servicio de rankings + tests; excluye modelos, migraciones, `LeaderboardViewSet`, `EventRankingService`, `event_ranks`/`event_scores`.
+- **4. Cambio de modelo**: ninguno (sin migraciones).
+- **5. Cambios en API**: solo se enriquece la respuesta del leaderboard (campo nuevo); sin cambios de rutas/permisos.
+- **6. Lógica de negocio**: `CompetitionRankingService.calculate_competition_ranking()` debe incluir `event_results` en cada entrada.
+- **7. Admin**: ninguno.
+- **8. Documentación**: `Process.md`, `RESULTADOS.md`, `README.md`.
+- **9. Detalle de implementación**: snipets de `EventResultSerializer`, campo nuevo en `LeaderboardEntrySerializer`, construcción de `event_results` en el servicio.
+- **10. Pruebas requeridas**: tabla (presencia, longitud, consistencia suma vs `final_score`, backward-compat, caso vacío).
+- **11. Criterios de aceptación**: `check`, `spectacular --validate`, pytest en verde.
+- **12. Observaciones**: backward-compatible; `result` es string crudo; orden de eventos por `event_number`; consumo de bytes.
+
+> Nota: esta fase es de especificación (solo `PROMPT.md`), no cambia código de la aplicación.
+> Al final de esta fase, confirmar con el usuario que la especificación quedó como se esperaba **antes** de implementar (Parte III, punto 2 de `PROMPT.md`).
+
+---
+
+## Fase 1 — Descubrimiento y verificación de línea base
+
+### Paso 1.1: Ejecutar verificaciones de referencia (solo lectura)
 
 ```bash
 python manage.py check --settings=config.settings.development
 python manage.py spectacular --validate --settings=config.settings.development
-python manage.py makemigrations --check --settings=config.settings.development
 python -m pytest tests --settings=config.settings.development
 ```
 
-**Criterio:** 0 issues, schema OK, "No changes" en migraciones, suite completa en verde (81 passed).
-Registrar en `Process.md` (nueva fila de iteración "Public GETs").
+**Criterio:** 0 issues, schema OK, suite completa en verde. Registrar en `Process.md` (nueva fila de iteración "Event results").
+Si falla por el refactor de modelos sin terminar, **detenerse** y completar el refactor primero (no es parte de este plan).
 
-### Paso 0.2: Confirmar el estado del frontend
+### Paso 1.2: Releer los archivos objetivo
 
-- `PROMPT-frontend.md` no está presente actualmente en el repo (verificado). Si reaparece antes de implementar, revisar su sección 12 y la tabla de endpoints (Fase 6 lo documentará si existe).
-
----
-
-## Fase 1 — Decisión de enfoque de permisos
-
-### Paso 1.1: Elegir opción
-
-| Opción | Descripción | Juicio |
-|--------|-------------|--------|
-| **A (recomendado)** | Añadir `permission_classes = (IsAuthenticatedOrReadOnly,)` en cada uno de los 3 ViewSets objetivo. | Simple, explícito, consistente con `LeaderboardViewSet`. Sin archivos nuevos. |
-| **B (alternativa)** | Crear mixin `PublicReadOnly(IsAuthenticatedOrReadOnly)` en `apps/users/permissions.py` y aplicarlo a los 3 ViewSets. | Centraliza la regla, pero añade abstracción innecesaria para solo 3 vistas. |
-
-**Decisión propuesta:** Opción A (más simple y consistente con el patrón existente). Confirmar con el usuario antes de implementar; si elige B, adaptar los pasos 2.2 y 3.2 para importar el mixin en lugar de la clase base.
-
-### Paso 1.2: Verificación
-
-Registrar la decisión en `Process.md`.
+Verificar que las líneas citadas coinciden con el código real:
+- `apps/rankings/serializers.py` (`LeaderboardEntrySerializer`, `LeaderboardSerializer`).
+- `apps/rankings/services/competition_ranking_service.py` (`calculate_competition_ranking`, `_rank_competitors`).
+- `apps/rankings/views.py` (acciones `qualifier`/`final`).
+- `tests/test_rankings.py` y `tests/test_api.py` (patrón de tests de leaderboard).
 
 ---
 
-## Fase 2 — Abrir lectura de `CompetitionViewSet`
+## Fase 2 — Serializers: agregar `EventResultSerializer` y `event_results`
 
-### Paso 2.1: Importar la clase de permiso
+### Paso 2.1: Nuevo serializer `EventResultSerializer`
 
-En `apps/competitions/views.py`, añadir el import (junto a los existentes de `rest_framework`):
-
-```python
-from rest_framework.permissions import IsAuthenticatedOrReadOnly
-```
-
-### Paso 2.2: Declarar `permission_classes` en `CompetitionViewSet`
-
-`apps/competitions/views.py` (clase actual en líneas 33-42). Añadir el atributo justo debajo del `queryset` (patrón de `LeaderboardViewSet`):
+En `apps/rankings/serializers.py`, junto a los existentes:
 
 ```python
-class CompetitionViewSet(viewsets.ModelViewSet):
-    permission_classes = (IsAuthenticatedOrReadOnly,)
-    queryset = Competition.objects.all()
-    serializer_class = CompetitionSerializer
-    ...
+class EventResultSerializer(serializers.Serializer):
+    event_id = serializers.IntegerField()
+    event_number = serializers.IntegerField()
+    event_name = serializers.CharField()
+    phase = serializers.CharField()
+    result = serializers.CharField()
+    event_rank = serializers.IntegerField(allow_null=True)
+    score = serializers.IntegerField(allow_null=True)
 ```
 
-**No cambiar** `get_serializer_class()` ni filtros.
+### Paso 2.2: Agregar campo a `LeaderboardEntrySerializer`
 
-### Paso 2.3: Verificación estática
+```python
+class LeaderboardEntrySerializer(serializers.Serializer):
+    rank = serializers.IntegerField()
+    competitor_id = serializers.IntegerField(source='competitor.id', read_only=True)
+    display_name = serializers.SerializerMethodField()
+    final_score = serializers.IntegerField()
+    event_ranks = serializers.ListField(child=serializers.IntegerField())
+    event_scores = serializers.ListField(
+        child=serializers.IntegerField(allow_null=True),
+        required=False,
+    )
+    event_results = EventResultSerializer(many=True, read_only=True)  # NUEVO
+```
 
-- `python manage.py check --settings=config.settings.development`.
+### Paso 2.3: Verificar schema
+
+- `python manage.py spectacular --validate --settings=config.settings.development` → debe seguir limpio (drf-spectacular deriva el campo anidado sin warnings).
 
 ---
 
-## Fase 3 — Abrir lectura de `CompetitionStageViewSet` y `EventViewSet`
+## Fase 3 — Servicio: construir y propagar `event_results`
 
-### Paso 3.1: Importar la clase de permiso
+### Paso 3.1: Ajustar `calculate_competition_ranking()`
 
-En `apps/events/views.py`, añadir:
-
-```python
-from rest_framework.permissions import IsAuthenticatedOrReadOnly
-```
-
-### Paso 3.2: `CompetitionStageViewSet`
-
-`apps/events/views.py:37-40`. Añadir `permission_classes`:
+En `apps/rankings/services/competition_ranking_service.py`:
+- La firma actual recibe `stage` (verificar según modelo vigente). Para el modelo nuevo, filtrar por `competition` + `phase`:
 
 ```python
-class CompetitionStageViewSet(viewsets.ModelViewSet):
-    permission_classes = (IsAuthenticatedOrReadOnly,)
-    queryset = CompetitionStage.objects.all()
-    serializer_class = CompetitionStageSerializer
-    filterset_fields = ('competition', 'stage_type')
+event_competitors = list(
+    EventCompetitor.objects.filter(
+        competitor=competitor,
+        event__competition=competition,
+        event__phase=phase,
+    )
+    .select_related('event')
+    .order_by('event__event_number')
+)
 ```
 
-### Paso 3.3: `EventViewSet`
-
-`apps/events/views.py:53-57`:
+- Construir `event_results` **desde el mismo queryset** (evita N+1 y asegura orden consistente):
 
 ```python
-class EventViewSet(viewsets.ModelViewSet):
-    permission_classes = (IsAuthenticatedOrReadOnly,)
-    queryset = Event.objects.all()
-    serializer_class = EventSerializer
-    filterset_fields = ('competition_stage',)
-    search_fields = ('name',)
+event_results_list = [
+    {
+        'event_id': ec.event_id,
+        'event_number': ec.event.event_number,
+        'event_name': ec.event.name,
+        'phase': ec.event.phase,
+        'result': ec.result,
+        'event_rank': ec.event_rank,
+        'score': ec.score,
+    }
+    for ec in event_competitors
+]
 ```
 
-### Paso 3.4: Verificación estática
+- Derivar `final_score`, `event_ranks` y `event_scores` del mismo recorrido (mantener el comportamiento actual de sumar `ec.score or 0`).
+- Agregar `'event_results': event_results_list` al dict de `competitor_scores`.
 
-- `python manage.py check --settings=config.settings.development` (0 issues).
+> Si el refactor no está completo y se conserva `competition_stage`: usar `event__competition_stage=stage` (con `select_related('event__competition_stage')`) y `'phase': ec.event.competition_stage.stage_type`.
+
+### Paso 3.2: Propagar `event_results` en `_rank_competitors()`
+
+`_rank_competitors()` reconstruye el dict rankeado y **debe conservar `event_results`** (hoy solo copia `final_score`, `rank`, `event_ranks`, `event_scores`):
+
+```python
+ranked.append({
+    'competitor': current['competitor'],
+    'final_score': current['final_score'],
+    'rank': rank,
+    'event_ranks': current['event_ranks'],
+    'event_scores': current['event_scores'],
+    'event_results': current['event_results'],
+})
+```
+
+### Paso 3.3: Confirmar integridad
+
+- El dict retornado por `_rank_competitors()` es lo que `LeaderboardEntrySerializer` consume (vía `LeaderboardSerializer`). Verificar que `event_results` llega como lista de dicts serializable.
 
 ---
 
-## Fase 4 — Tests de permisos públicos (nuevos)
+## Fase 4 — Views y API (verificación, sin cambios de ruta)
 
-> Ubicación: `tests/test_api.py`, siguiendo el patrón existente de `APIClient`. Reutilizar fixtures de `conftest.py` (`competition`, `stage_qualifier`, `event`, `superadmin`, etc.).
-> Nota: las listas responden con paginación (`response.data['results']`).
+### Paso 4.1: Confirmar que `LeaderboardViewSet` no requiere cambios
 
-### Paso 4.1: Añadir clase `TestAPIPublicReadOnly` al final de `tests/test_api.py`
+- `apps/rankings/views.py` sigue llamando al servicio y serializando con `LeaderboardSerializer`; el nuevo campo se expone automáticamente.
+- Si la firma del servicio cambia de `(competition, stage)` a `(competition, phase)`, adaptar las llamadas en `views.py`: accion `qualifier` → `Event.Phase.QUALIFIER`; accion `final` → `Event.Phase.FINAL`.
 
-```python
-@pytest.mark.django_db
-class TestAPIPublicReadOnly:
-    # --- competitions: lectura pública, escritura protegida ---
-    def test_competition_list_public(self, competition):
-        client = APIClient()
-        response = client.get('/api/v1/competitions/')
-        assert response.status_code == 200
-        assert len(response.data['results']) >= 1
+### Paso 4.2: Dejar sin tocar `final_qualification_service.py`
 
-    def test_competition_detail_public(self, competition):
-        client = APIClient()
-        response = client.get(f'/api/v1/competitions/{competition.id}/')
-        assert response.status_code == 200
-        assert response.data['competition_type']['code'] == 'CROSSFIT'
-        assert 'status' in response.data
-        assert 'affiliation' in response.data
-        assert 'location' in response.data
+- No forma parte del contrato de respuesta; solo reusa `calculate_competition_ranking`. Verificar que su llamada compila con la nueva firma (misma adaptación que en views).
 
-    def test_competition_create_requires_auth(self, competition_type, status_competition, affiliation, location):
-        client = APIClient()
-        data = {  # mismo payload que TestAPICompetitions.test_create_competition
-            'name': 'Público Intruso',
-            'competition_type': competition_type.id,
-            'status': status_competition.id,
-            'affiliation': affiliation.id,
-            'location': location.id,
-            'description': '',
-            'start_date': '2027-07-01',
-            'end_date': '2027-07-03',
-            'slug': 'publico-intruso',
-        }
-        response = client.post('/api/v1/competitions/', data, format='json')
-        assert response.status_code == 401
+---
 
-    def test_competition_destroy_requires_auth(self, competition):
-        client = APIClient()
-        response = client.delete(f'/api/v1/competitions/{competition.id}/')
-        assert response.status_code == 401
+## Fase 5 — Tests
 
-    def test_competition_filter_public(self, competition):
-        client = APIClient()
-        response = client.get(f'/api/v1/competitions/?status={competition.status.id}')
-        assert response.status_code == 200
+### Paso 5.1: Actualizar `tests/test_rankings.py`
 
-    # --- competition-stages ---
-    def test_stage_list_public(self, stage_qualifier):
-        client = APIClient()
-        response = client.get(
-            f'/api/v1/competition-stages/?competition={stage_qualifier.competition.id}'
-        )
-        assert response.status_code == 200
-        assert len(response.data['results']) >= 1
+- Adaptar las llamadas existentes a `calculate_competition_ranking(...)` (líneas ~167 y ~220) a la nueva firma (`competition`, `phase`).
+- Agregar a `TestCompetitionRankingService`:
+  - `test_event_results_present` → cada entry tiene `event_results` con `len == número de eventos`.
+  - `test_event_results_structure` → cada elemento expone `event_id`, `event_number`, `event_name`, `phase`, `result`, `event_rank`, `score`.
+  - `test_event_results_scores_sum_to_final_score` → `sum(e['score'] for e in entry['event_results']) == entry['final_score']` (usa fixture `scoring_rules`).
+  - `test_event_results_ordered_by_event_number` → el orden sigue `Event.Meta.ordering`.
+  - `test_event_results_empty` → competitor sin resultados → `event_results == []`.
 
-    def test_stage_create_requires_auth(self, competition):
-        client = APIClient()
-        data = {
-            'competition': competition.id,
-            'stage_type': 'QUALIFIER',
-            'qualification_count': 5,
-            'order': 1,
-        }
-        response = client.post('/api/v1/competition-stages/', data, format='json')
-        assert response.status_code == 401
+### Paso 5.2: Agregar test de API en `tests/test_api.py` (`TestAPIRankings`)
 
-    # --- events ---
-    def test_event_list_public(self, event):
-        client = APIClient()
-        response = client.get(
-            f'/api/v1/events/?competition_stage={event.competition_stage.id}'
-        )
-        assert response.status_code == 200
-        assert len(response.data['results']) == 1
+- Crear un evento + `EventCompetitor` + `EventRankingService.calculate_event_ranking()` (para asegurar `event_rank`/`score`), y verificar:
+  - `GET /api/v1/leaderboards/competition/{id}/qualifier/` → 200.
+  - `response.data['results'][0]['entries'][0]` contiene `event_results`.
+  - La estructura y la suma concuerdan.
 
-    def test_event_create_requires_auth(self, event):
-        client = APIClient()
-        data = {
-            'competition_stage': event.competition_stage.id,
-            'event_number': 99,
-            'name': 'WOD Intruso',
-            'event_result_type': event.event_result_type_id,
-            'rank_direction': event.rank_direction_id,
-        }
-        response = client.post('/api/v1/events/', data, format='json')
-        assert response.status_code == 401
-
-    # --- regresión con autenticación ---
-    def test_public_reads_work_with_superadmin(self, superadmin, competition,
-                                               stage_qualifier, event):
-        client = APIClient()
-        client.force_authenticate(user=superadmin)
-        assert client.get('/api/v1/competitions/').status_code == 200
-        assert client.get(
-            f'/api/v1/competition-stages/?competition={competition.id}').status_code == 200
-        assert client.get(
-            f'/api/v1/events/?competition_stage={stage_qualifier.id}').status_code == 200
-
-    # --- leaderboards siguen públicos ---
-    def test_leaderboard_still_public(self, competition):
-        client = APIClient()
-        response = client.get(
-            f'/api/v1/leaderboards/competition/{competition.id}/qualifier/'
-        )
-        assert response.status_code in (200, 404)
-```
-
-### Paso 4.2: Verificar campos del serializer antes de escribir el test de detalle
-
-- Confirmar en `apps/competitions/serializers.py` (`CompetitionSerializer`) que los campos anidados se llaman `competition_type`, `status`, `affiliation`, `location` (verificado: sí). Ajustar el test si cambia algo.
-
-### Paso 4.3: Ejecutar los tests nuevos
+### Paso 5.3: Ejecutar la suite nueva
 
 ```bash
-python -m pytest tests/test_api.py --settings=config.settings.development -v
+python -m pytest tests/test_rankings.py tests/test_api.py --settings=config.settings.development -v
 ```
 
-**Criterio:** todos los casos nuevos en verde y sin cambios en los existentes (uno a uno de los asserts:
-el POST/DELETE anónimo devuelve **401**; el GET anónimo devuelve **200**).
+**Criterio:** casos nuevos en verde y existentes intactos.
 
 ---
 
-## Fase 5 — Verificación completa
+## Fase 6 — Verificación completa
 
-### Paso 5.1: Suite completa
+### Paso 6.1: Suite completa
 
 ```bash
 python -m pytest tests --settings=config.settings.development
 ```
 
-**Criterio:** verde, con los tests nuevos añadidos (81 existentes + ~11 nuevos ≈ 92).
+**Criterio:** verde (suite previa + tests nuevos).
 
-### Paso 5.2: Checks estáticos
+### Paso 6.2: Checks estáticos
 
 ```bash
 python manage.py check --settings=config.settings.development
 python manage.py spectacular --validate --settings=config.settings.development
 ```
 
-**Criterio:** 0 issues, schema OpenAPI válido.
+**Criterio:** 0 issues, schema OpenAPI válido (incluye `event_results` documentado).
 
-### Paso 5.3: Confirmar que NO hay migraciones
+### Paso 6.3: Confirmar migraciones
 
 ```bash
 python manage.py makemigrations --check --settings=config.settings.development
 ```
 
-**Criterio:** "No changes detected" (no se generan migraciones; no hay tareas manuales de migración).
+**Criterio:** "No changes detected" (sin cambios de modelo; **si** se detecta migración pendiente por el refactor opción 1, es esperada y **no** se genera aquí: informarla al usuario).
 
-### Paso 5.4: Smoke test manual (opcional, con server corriendo)
+### Paso 6.4: Smoke test manual (opcional)
 
 ```bash
 python manage.py runserver --settings=config.settings.development
 ```
 
-| Endpoint | Anónimo (sin header) | Esperado |
-|----------|----------------------|----------|
-| `GET /api/v1/competitions/` | sin token | 200 + listado |
-| `GET /api/v1/competitions/{id}/` | sin token | 200 + detalle con type/status/affiliation/location |
-| `GET /api/v1/competition-stages/?competition={id}` | sin token | 200 |
-| `GET /api/v1/events/?competition_stage={id}` | sin token | 200 |
-| `POST /api/v1/events/` | sin token | 401 |
-| `GET /api/v1/leaderboards/competition/{id}/qualifier/` | sin token | 200 (sin cambios) |
+Con datos de seed: `GET /api/v1/leaderboards/competition/{id}/qualifier/` → cada `entry` incluye `event_results` con `event_name`, `result` (string crudo, p. ej. "04:36"), `event_rank` y `score`.
 
 ---
 
-## Fase 6 — Documentación
+## Fase 7 — Documentación
 
-### Paso 6.1: `Process.md`
+### Paso 7.1: `Process.md`
 
-- Agregar fila de iteración "Public GETs" en la tabla de estado.
-- Registrar por fase: decisión de enfoque (Fase 1), ediciones hechas (Fases 2-3), tests añadidos (Fase 4), resultados de verificación (Fase 5).
+- Nueva fila de iteración "Event results" en la tabla de estado.
+- Registrar: especificación (Fase 0), archivos modificados, adaptación de firma del servicio, tests añadidos, resultados de verificación.
 
-### Paso 6.2: `RESULTADOS.md`
+### Paso 7.2: `RESULTADOS.md`
 
-- Resumen final: archivos modificados, tests añadidos (conteo final), verificaciones OK, problema/solución si lo hubo (p. ej. si `IsAuthenticatedOrReadOnly` afectara algún detalle del schema o si la paginación interfiere en un assert).
+- Resumen: serializers/servicio/tests modificados (conteo final), verificaciones OK, nota de compatibilidad (se conservan `event_ranks`/`event_scores`).
 
-### Paso 6.3: `README.md` — secciones API y seguridad
+### Paso 7.3: `README.md`
 
-- En la nota tras la tabla de la API (línea ~177): indicar que además de los leaderboards, los GET de `competitions`, `competition-stages` y `events` son **públicos de solo lectura**; las escrituras siguen requiriendo JWT.
-- Si existe sección de seguridad que liste "Leaderboards públicos", ampliarla con "Lectura pública de competencias/etapas/eventos".
-
-### Paso 6.4: `PROMPT-frontend.md` (si el archivo existe/regresa)
-
-- Sección 12: marcar la decisión como **resuelta** (opción "abrir GET públicos" implementada).
-- Tabla de endpoints: las filas marcadas como "Pública pendiente (hoy JWT)" → "Pública (AllowAny)".
-- Estado actual verificable: el archivo no está en el repo en este momento → si al implementar no existe, omitirlo y anotarlo en `Process.md`.
+- Sección de leaderboards/API: indicar que la respuesta incluye `event_results` (desglose por evento) con un ejemplo de la estructura.
 
 ---
 
-## Fase 7 — Cierre
+## Fase 8 — Cierre
 
-### Paso 7.1: Reporte final al usuario
+### Paso 8.1: Reporte final al usuario
 
-Resumen de: qué se cambió (3 archivos de código si se elige Opción A), tests añadidos, verificaciones, y **pasos manuales del usuario** (ninguno de migración; opcional smoke test del punto 5.4).
+Resumen de: qué se cambió (2 archivos de código: serializers + servicio; 1-2 de tests), verificaciones, y **pasos manuales del usuario** (ninguno de migración; opcional smoke test 6.4; si quedó migración detectada del refactor, indicar ejecutar `makemigrations`/`migrate` manualmente).
 
-### Paso 7.2: No ejecutar nada pendiente
+### Paso 8.2: No ejecutar nada pendiente
 
-Sin migraciones/seed/createsuperuser pendientes. Única acción opcional del usuario: recrear/inspeccionar `PROMPT-frontend.md` para que refleje el estado público del backend.
+Sin migraciones/seed/createsuperuser pendientes para esta iteración.
 
 ---
 
@@ -366,25 +309,27 @@ Sin migraciones/seed/createsuperuser pendientes. Única acción opcional del usu
 
 | # | Archivo | Tipo | Fase |
 |---|---------|------|------|
-| 1 | `apps/competitions/views.py` | modificar (`CompetitionViewSet` + import) | 2 |
-| 2 | `apps/events/views.py` | modificar (`CompetitionStageViewSet`, `EventViewSet` + import) | 3 |
-| 3 | `tests/test_api.py` | modificar (nueva clase `TestAPIPublicReadOnly`) | 4 |
-| 4 | `Process.md` | modificar (registro de iteración) | 0,1,6 |
-| 5 | `RESULTADOS.md` | modificar | 6 |
-| 6 | `README.md` | modificar (sección API/seguridad) | 6 |
-| 7 | `PROMPT-frontend.md` | modificar **si existe** (sección 12 + tabla) | 6 |
+| 1 | `PROMPT.md` | modificar (nueva Parte II "Exponer event_results") | 0 |
+| 2 | `apps/rankings/serializers.py` | modificar (`EventResultSerializer` + campo `event_results`) | 2 |
+| 3 | `apps/rankings/services/competition_ranking_service.py` | modificar (construir/propagar `event_results`) | 3 |
+| 4 | `apps/rankings/views.py` | modificar **solo si** cambia la firma del servicio | 4 |
+| 5 | `apps/rankings/services/final_qualification_service.py` | modificar **solo si** cambia la firma del servicio | 4 |
+| 6 | `tests/test_rankings.py` | modificar (firma + tests de `event_results`) | 5 |
+| 7 | `tests/test_api.py` | modificar (test API de `event_results`) | 5 |
+| 8 | `Process.md` | modificar (registro de iteración) | 0,1,6,7 |
+| 9 | `RESULTADOS.md` | modificar | 7 |
+| 10 | `README.md` | modificar (sección API/leaderboard) | 7 |
 
-**No se modifican:** modelos, migraciones, serializers, services, urls, `config/settings/base.py`,
-`LeaderboardViewSet`, `apps/users/permissions.py` (salvo Opción B en Fase 1).
+**No se modifican:** modelos, migraciones, `EventRankingService`, `ScoringService`, `LeaderboardViewSet`, `config/settings/base.py`.
 
 ---
 
 ## Orden de ejecución recomendado
 
 ```
-Fase 0 (línea base) → Fase 1 (decisión de enfoque) → Fase 2 (CompetitionViewSet)
-→ Fase 3 (Stage + Event ViewSets) → Fase 4 (tests de permisos) → Fase 5 (verificación completa)
-→ Fase 6 (documentación) → Fase 7 (cierre y reporte)
+Fase 0 (especificación en PROMPT.md) → Fase 1 (línea base + descubrimiento)
+→ Fase 2 (serializers) → Fase 3 (servicio) → Fase 4 (views/API verificación)
+→ Fase 5 (tests) → Fase 6 (verificación completa) → Fase 7 (documentación) → Fase 8 (cierre)
 ```
 
-**Total estimado:** 2 archivos de código + 1 archivo de tests + 3-4 docs. Sin cambios en el modelo de datos.
+**Total estimado:** 2-4 archivos de código según firma del servicio + 1-2 archivos de tests + 3-4 docs + `PROMPT.md`. Sin cambios en el modelo de datos ni migraciones.

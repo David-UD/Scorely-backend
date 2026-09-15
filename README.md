@@ -162,7 +162,6 @@ Base URL: `http://localhost:8000/api/v1/`
 | Competiciones | `GET/POST /competitions/` |
 | Categorías | `GET/POST /competition-categories/` |
 | Categorías habilitadas | `GET/POST /enabled-competition-categories/` |
-| Fases (stage) | `GET/POST /competition-stages/` |
 | Eventos (WODs) | `GET/POST /events/` |
 | Resultados por evento | `GET/POST /event-competitors/` |
 | Atletas | `GET/POST /athletes/` |
@@ -172,7 +171,7 @@ Base URL: `http://localhost:8000/api/v1/`
 | Reglas de puntuación | `GET/POST /scoring-rules/` |
 | Leaderboard público | `GET /leaderboards/competition/<id>/qualifier/`, `GET /leaderboards/competition/<id>/final/` |
 
-Autenticación con header: `Authorization: Bearer <access_token>`. Los endpoints de solo lectura de competiciones, etapas y eventos son públicos (sin token). Las escrituras siguen requiriendo JWT. Los leaderboards son públicos (`AllowAny`).
+Autenticación con header: `Authorization: Bearer <access_token>`. Los endpoints de solo lectura de competiciones y eventos son públicos (sin token). Las escrituras siguen requiriendo JWT. Los leaderboards son públicos (`AllowAny`) y la respuesta incluye `event_results` (desglose por evento, ver "Leaderboard" más abajo).
 
 ## Documentación Swagger/OpenAPI
 
@@ -192,11 +191,10 @@ La API se documenta sola con `drf-spectacular` a partir de los serializers y vie
 
 ```
 Competition
-  └─▶ CompetitionStage (QUALIFIER | FINAL)
-        └─▶ Event (WOD)
-              └─▶ EventCompetitor  (result + event_rank + score)
-                    └─▶ Final Score
-                          └─▶ Leaderboard
+  └─▶ Event (WOD)  ← competition FK + phase (QUALIFIER | FINAL) + event_number único por competición
+        └─▶ EventCompetitor  (result + event_rank + score)
+              └─▶ Final Score
+                    └─▶ Leaderboard
 ```
 
 ### Participantes
@@ -217,8 +215,8 @@ Athlete ────────┐
 ### Reglas de negocio clave
 
 - `Slug` único en `Competition`; el año se deriva de `start_date`.
-- Exactamente **una** fase `QUALIFIER` y **una** fase `FINAL` por competición.
-- `UNIQUE(competition_stage, event_number)` en Event.
+- Exactamente **una** fase `QUALIFIER` y **una** fase `FINAL` por competición (`Event.phase`).
+- `UNIQUE(competition, event_number)` en Event (un solo WOD número N por competición, sin importar la fase).
 - `UNIQUE(competitor, event)` en EventCompetitor.
 - `UNIQUE(competition, competition_category)` en categorías habilitadas.
 - Cada competición define su propia tabla de puntuación (`ScoringRule`).
@@ -230,7 +228,7 @@ Athlete ────────┐
 | users | `User`, `CompetitionAdmin` |
 | competitions | `CompetitionType`, `Affiliation`, `Location`, `StatusCompetition`, `Competition` |
 | participants | `Athlete`, `Team`, `TeamMember`, `Competitor` |
-| events | `CompetitionCategory`, `EnabledCompetitionCategory`, `CompetitionStage`, `Event`, `EventCompetitor` |
+| events | `CompetitionCategory`, `EnabledCompetitionCategory`, `Event` (FK `competition` + `phase`), `EventCompetitor` |
 | scoring | `ScoringRule` |
 
 ## Sistema de puntuación (escore)
@@ -249,7 +247,47 @@ Resultado → Posición (rank) → Puntos WOD (ScoringRule) → Puntaje Final �
 2. `EventRankingService` ordena según `Event.is_ascending` (True → menor es mejor, False → mayor es mejor) y asigna posiciones (ranking deportivo/denso).
 3. `ScoringService` convierte la posición en puntos usando la tabla de la competición (`ScoringRule`).
 4. `CompetitionRankingService` suma los puntos de los eventos del stage → Puntaje Final y clasificación general por categoría.
-5. `FinalQualificationService` determina quiénes avanzan del Qualifier al Final.
+5. `FinalQualificationService` determina quiénes avanzan del Qualifier al Final (usa `Competition.finalist_slots`).
+
+### Respuesta del leaderboard
+
+Cada `entry` del leaderboard incluye el desglose por evento en `event_results` (además de las listas planas `event_ranks`/`event_scores`, que se conservan):
+
+```json
+{
+  "category": "Individual Male",
+  "entries": [
+    {
+      "rank": 1,
+      "competitor_id": 5,
+      "display_name": "John Doe",
+      "final_score": 100,
+      "event_ranks": [1],
+      "event_scores": [100],
+      "event_results": [
+        {
+          "event_id": 3,
+          "event_number": 1,
+          "event_name": "Fran",
+          "phase": "QUALIFIER",
+          "result": "04:36",
+          "event_rank": 1,
+          "score": 100
+        }
+      ]
+    }
+  ]
+}
+```
+
+`event_results` se ordena por `event_number`; `result` es el string crudo del resultado (no se parsea).
+
+### Endpoints del leaderboard
+
+- `GET /leaderboards/competition/<id>/qualifier/` — **solo** eventos QUALIFIER; 404 si la competición no tiene eventos de qualifier.
+- `GET /leaderboards/competition/<id>/final/` — **global** (qualifier + final combinados, suma de todas las fases). Un competidor sin registro en un WOD (p. ej. no clasificado en el final) aparece con `result`/`event_rank`/`score` = `null` (el frontend lo renderiza como "—") y ese evento no suma al `final_score`.
+
+Solo los que clasifican (top `finalist_slots` por categoría según el ranking qualifier) tienen registros en los eventos FINAL (`seed_data` los crea de ese modo).
 
 ### Orden del evento (`is_ascending`)
 
