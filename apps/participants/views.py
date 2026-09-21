@@ -1,6 +1,6 @@
 from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
 
 from apps.users.permissions import IsCompetitionAdmin, visible_competitions_q
 
@@ -48,6 +48,7 @@ class TeamMemberViewSet(viewsets.ModelViewSet):
 
 
 class CompetitorViewSet(viewsets.ModelViewSet):
+    permission_classes = (IsAuthenticatedOrReadOnly,)
     queryset = Competitor.objects.all()
     serializer_class = CompetitorSerializer
     search_fields = ('registration_number',)

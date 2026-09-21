@@ -19,12 +19,14 @@ from .serializers import (
 
 
 class CompetitionCategoryViewSet(viewsets.ModelViewSet):
+    permission_classes = (IsAuthenticatedOrReadOnly,)
     queryset = CompetitionCategory.objects.all()
     serializer_class = CompetitionCategorySerializer
     search_fields = ('name',)
 
 
 class EnabledCompetitionCategoryViewSet(viewsets.ModelViewSet):
+    permission_classes = (IsAuthenticatedOrReadOnly,)
     queryset = EnabledCompetitionCategory.objects.all()
     serializer_class = EnabledCompetitionCategorySerializer
     filterset_fields = ('competition',)
