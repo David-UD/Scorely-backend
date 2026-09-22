@@ -187,7 +187,6 @@ def competitor(db, competition, enabled_category, athlete):
 @pytest.fixture
 def team(db, competition):
     return Team.objects.create(
-        competition=competition,
         name='LOS TD-AH',
     )
 

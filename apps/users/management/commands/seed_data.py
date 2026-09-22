@@ -396,10 +396,10 @@ class Command(BaseCommand):
                 ec for ec in self._enabled_categories[key]
                 if ec.competition_category.name == category_name
             )
-            team, created_t = Team.objects.get_or_create(
-                competition=competition,
-                name=team_name,
-            )
+            team = Team.objects.filter(name=team_name).first()
+            created_t = team is None
+            if created_t:
+                team = Team.objects.create(name=team_name)
             for first_name, last_name in athlete_names:
                 athlete = get_athlete(first_name, last_name)
                 TeamMember.objects.get_or_create(team=team, athlete=athlete)

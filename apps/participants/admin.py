@@ -13,9 +13,9 @@ class AthleteAdmin(admin.ModelAdmin):
 
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
-    list_display = ('name', 'competition', 'affiliation')
+    list_display = ('name', 'affiliation')
     search_fields = ('name',)
-    autocomplete_fields = ('competition', 'affiliation')
+    autocomplete_fields = ('affiliation',)
 
 
 @admin.register(TeamMember)

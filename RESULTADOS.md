@@ -306,6 +306,42 @@ Nuevos conteos demo: **20** personas, **12** competidores, **37** `EventCompetit
 
 ---
 
+## Parte II-G — Equipos globales (catálogo al estilo Atletas)
+
+Los **equipos dejan de pertenecer a una competición**: pasan a ser un **catálogo
+global como `Athlete`**. La competición de una inscripción queda representada
+**solo en `Competitor`** (que ya la guarda). Se elimina la redundancia
+`Team.competition` + `Competitor.competition`.
+
+### Cambios
+
+- `participants.models.Team`: **eliminada la FK `competition`** (migración
+  `participants/0003_remove_team_competition` **no aplicada** — la genera la BD;
+  los tests usan `--nomigrations`). El modelo queda como catálogo global.
+- `participants.serializers.TeamSerializer`: `fields = (id, name, affiliation)`.
+- `participants.views.TeamViewSet`: **espejo de `AthleteViewSet`** — permisos
+  `(IsAuthenticated,)`, queryset global, sin guard de competición, sin `create()`
+  con rol. Limpiados `PermissionDenied`, `IsCompetitionAdmin` y
+  `visible_competitions_q` (sin uso).
+- `participants.admin.TeamAdmin`: sin campo `competition`.
+- `seed_data.create_team()`: equipos **globales** (sin `competition`); los
+  `Competitor` (TEAM) siguen ligando `competition` + `enabled_competition_category`.
+- Tests reescritos al modelo global (espejo de atletas): `conftest.team` sin
+  competición; `test_permissions.py` — `test_admin_sees_all_teams` (lista global),
+  `test_admin_can_create_team` (POST sin `competition`), `test_admin_can_create_athlete`
+  intacto.
+
+### Verificaciones
+
+| Verificación | Resultado |
+|--------------|-----------|
+| `manage.py check` | ✅ 0 issues |
+| `manage.py spectacular --validate` | ✅ exit 0 (0 errors) |
+| **migración `0003` (NO aplicada)** | ⚠️ Pendiente — la genera el usuario (se acordó no aplicar migraciones) |
+| `pytest tests/` | ✅ **119/119 passed** (completo: permissions + seed + demás) |
+
+---
+
 ## Despliegue / Pasos Siguientes (usuario)
 
 1. **Migraciones manuales** (como se acordó):

@@ -312,60 +312,19 @@ def test_admin_can_create_event_in_own_competition(
     assert response.status_code == 201
 
 
-def test_admin_sees_only_teams_of_assigned_competition(
-    user,
-    superadmin,
-    competition,
-    team,
-    competition_type,
-    status_competition,
-    affiliation,
-    location,
-):
-    other = _other_competition(
-        competition, competition_type, status_competition, affiliation, location
-    )
-    Team.objects.create(name='Forbidden Team', competition=other)
-    _assign(user, superadmin, competition)
-
+def test_admin_sees_all_teams(user, team):
     client = APIClient()
     client.force_authenticate(user=user)
     response = client.get('/api/v1/teams/')
     assert response.status_code == 200
     names = {item['name'] for item in response.data['results']}
     assert 'LOS TD-AH' in names
-    assert 'Forbidden Team' not in names
 
 
-def test_admin_cannot_create_team_outside_own_competition(
-    user,
-    superadmin,
-    competition,
-    competition_type,
-    status_competition,
-    affiliation,
-    location,
-):
-    other = _other_competition(
-        competition, competition_type, status_competition, affiliation, location
-    )
-    _assign(user, superadmin, competition)
-
+def test_admin_can_create_team(user):
     client = APIClient()
     client.force_authenticate(user=user)
-    response = client.post('/api/v1/teams/', {'name': 'Hack Team', 'competition': other.pk})
-    assert response.status_code == 403
-
-
-def test_admin_can_create_team_in_own_competition(
-    user,
-    superadmin,
-    competition,
-):
-    _assign(user, superadmin, competition)
-    client = APIClient()
-    client.force_authenticate(user=user)
-    response = client.post('/api/v1/teams/', {'name': 'My Team', 'competition': competition.pk})
+    response = client.post('/api/v1/teams/', {'name': 'My Team'})
     assert response.status_code == 201
 
 

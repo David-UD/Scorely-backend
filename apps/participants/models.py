@@ -24,11 +24,6 @@ class Athlete(models.Model):
 
 class Team(models.Model):
     name = models.CharField(max_length=200)
-    competition = models.ForeignKey(
-        'competitions.Competition',
-        on_delete=models.CASCADE,
-        related_name='teams',
-    )
     affiliation = models.ForeignKey(
         'competitions.Affiliation',
         on_delete=models.SET_NULL,
