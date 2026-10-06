@@ -23,6 +23,7 @@ class CompetitionTypeViewSet(viewsets.ModelViewSet):
 
 
 class AffiliationViewSet(viewsets.ModelViewSet):
+    permission_classes = (IsAuthenticatedOrReadOnly,)
     queryset = Affiliation.objects.all()
     serializer_class = AffiliationSerializer
     search_fields = ('name',)

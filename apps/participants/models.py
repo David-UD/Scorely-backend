@@ -24,6 +24,7 @@ class Athlete(models.Model):
 
 class Team(models.Model):
     name = models.CharField(max_length=200)
+    profile_photo = models.ImageField(upload_to='Athletes/', blank=True, null=True)
     affiliation = models.ForeignKey(
         'competitions.Affiliation',
         on_delete=models.SET_NULL,

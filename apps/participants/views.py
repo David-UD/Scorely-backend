@@ -1,5 +1,5 @@
 from rest_framework import viewsets
-from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
+from rest_framework.permissions import IsAuthenticatedOrReadOnly, IsAuthenticatedOrReadOnly
 
 from .models import Athlete, Competitor, Team, TeamMember
 from .serializers import (
@@ -11,7 +11,7 @@ from .serializers import (
 
 
 class AthleteViewSet(viewsets.ModelViewSet):
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsAuthenticatedOrReadOnly,)
     queryset = Athlete.objects.all()
     serializer_class = AthleteSerializer
     search_fields = ('first_name', 'last_name')
@@ -19,7 +19,7 @@ class AthleteViewSet(viewsets.ModelViewSet):
 
 
 class TeamViewSet(viewsets.ModelViewSet):
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsAuthenticatedOrReadOnly,)
     queryset = Team.objects.all()
     serializer_class = TeamSerializer
     search_fields = ('name',)
